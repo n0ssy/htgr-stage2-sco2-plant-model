@@ -21,7 +21,7 @@ import csv
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional, Any, Tuple
 import numpy as np
 
 try:
@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from validation.dostal_validation import run_dostal_validation
 from cycle.coupled_solver import CoupledPlantSolver, PlantConfig
 from cycle.sco2_cycle import CycleConfig
+from cycle.operating_point_search import SearchConfig, SearchBounds, search_operating_point
 from components.ihx import IHXConfig
 from components.dry_cooler import DryCoolerConfig, DryCoolerGeometry
 from properties.fluids import CO2_T_CRIT, CO2_P_CRIT
@@ -244,6 +245,94 @@ def get_assumptions() -> dict:
     return assumptions
 
 
+def _infeasibility_score(result) -> float:
+    """Rank non-feasible plant results (lower is better)."""
+    margins = result.feasibility_report.margins
+    score = 0.0
+    if not result.converged:
+        score += 1e6
+    if not result.feasible:
+        score += 1e5
+    failed = sum(1 for ok in result.feasibility_report.constraints.values() if not ok)
+    score += 2e4 * failed
+    e_margin = margins.get("energy_residual_plant_margin_rel", margins.get("energy_closure", 0.0))
+    if e_margin < 0:
+        score += 1e7 * abs(float(e_margin))
+    t_he_margin = margins.get("T_He_return_margin_K", margins.get("T_He_return", 0.0))
+    if t_he_margin < 0:
+        score += 2e4 * abs(float(t_he_margin))
+    if result.W_net < 0:
+        score += 1e5 + abs(result.W_net)
+    score += 1000.0 * float(result.energy_closure_rel)
+    return float(score)
+
+
+def _serialize_search(search_outcome) -> Dict[str, Any]:
+    ranked = []
+    for cand in search_outcome.ranked:
+        ranked.append(
+            {
+                "P_high_MPa": cand.P_high / 1e6,
+                "P_low_MPa": cand.P_low / 1e6,
+                "f_recomp": cand.f_recomp,
+                "score": cand.score,
+                "converged": cand.converged,
+                "feasible": cand.feasible,
+                "energy_closure_rel": cand.energy_closure_rel,
+                "W_net_MW": cand.W_net / 1e6,
+                "constraints_failed": cand.constraints_failed,
+            }
+        )
+    return {
+        "stage": search_outcome.stage,
+        "best": ranked[0] if ranked else {},
+        "ranked": ranked,
+    }
+
+
+MODERATE_TUNING_BOUNDS = {
+    "ihx_dT_approach_K": (25.0, 35.0),
+    "cooling_aux_fraction": (0.005, 0.02),
+}
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return float(max(lower, min(value, upper)))
+
+
+def _is_allow_infeasible_diagnostic_enabled() -> bool:
+    return os.getenv("ALLOW_INFEASIBLE_DIAGNOSTIC", "0").strip() == "1"
+
+
+def _should_fail_fast_after_headline(
+    headline_feasible: bool,
+    allow_infeasible_diagnostic: bool,
+) -> bool:
+    return (not headline_feasible) and (not allow_infeasible_diagnostic)
+
+
+def _build_feasibility_summary(scenario_id: str, plant_results: Dict[str, Any]) -> Dict[str, Any]:
+    status = plant_results.get("status", {})
+    margins = plant_results.get("margins", {})
+    return {
+        "scenario_id": scenario_id,
+        "converged": bool(status.get("converged", False)),
+        "feasible": bool(status.get("feasible", False)),
+        "convergence_reason": status.get("convergence_reason", "unknown"),
+        "iterations": int(status.get("iterations", 0)),
+        "residual_norm": float(status.get("residual_norm", 0.0)),
+        "energy_closure_rel": float(status.get("energy_closure_rel", 1.0)),
+        "energy_residual_plant_margin_rel": margins.get("energy_residual_plant_margin_rel"),
+        "T_He_return_margin_K": margins.get("T_He_return_margin_K", margins.get("T_He_return")),
+        "pinch_IHX_margin_K": margins.get("pinch_IHX_min"),
+        "pinch_HTR_margin_K": margins.get("pinch_HTR_min"),
+        "pinch_LTR_margin_K": margins.get("pinch_LTR_min"),
+        "W_net_W": margins.get("W_net"),
+        "selected_operating_point": plant_results.get("metadata", {}).get("selected_operating_point", {}),
+        "selected_tuning_parameters": plant_results.get("metadata", {}).get("selected_tuning_parameters", {}),
+    }
+
+
 def run_full_plant_solve(
     T_ambient_C: float = 40.0,
     heat_rejection_mode: str = "fixed_boundary",
@@ -252,119 +341,254 @@ def run_full_plant_solve(
     baseline_or_sensitivity: str = "baseline",
     source_assumptions_version: str = "v2",
     cooling_aux_fraction: float = 0.01,
+    auto_tune: bool = True,
+    tuning_mode: str = "moderate",
+    initial_guess: Optional[Dict[str, float]] = None,
     verbose: bool = True,
-) -> dict:
+) -> Tuple[Dict[str, Any], Any]:
     """
-    Run the full plant solve.
+    Run the full plant solve with optional bounded operating-point/tuning search.
 
     Args:
         T_ambient_C: Ambient temperature in Celsius
         heat_rejection_mode: fixed_boundary (headline) or coupled_cooler (sensitivity)
+        auto_tune: Enable operating-point/tuning search
+        tuning_mode: "moderate" or "off"
+        initial_guess: Optional initial guess dict for solver state
         verbose: Print detailed output
-
-    Returns:
-        Results dictionary
     """
     if heat_rejection_mode not in {"fixed_boundary", "coupled_cooler"}:
         raise ValueError(
             "heat_rejection_mode must be 'fixed_boundary' or 'coupled_cooler'"
         )
+    if tuning_mode not in {"moderate", "off"}:
+        raise ValueError("tuning_mode must be 'moderate' or 'off'")
 
     T_ambient = T_ambient_C + 273.15
+    energy_tol = 0.005
 
-    cycle_config = CycleConfig(
-        P_high_min=20e6,
-        P_high_max=30e6,
-        P_low_min=7.5e6,
-        P_low_max=9.0e6,
-        f_recomp_min=0.25,
-        f_recomp_max=0.45,
-        eta_turbine=0.90,
-        eta_MC=0.89,
-        eta_RC=0.89,
-        dT_crit_margin=3.0,
-        dP_crit_margin=0.3e6,
-        dT_pinch_min=10.0,
-        n_segments=20,
-        dP_HTR_hot=50e3,
-        dP_HTR_cold=50e3,
-        dP_LTR_hot=50e3,
-        dP_LTR_cold=50e3,
-        T_TIT_max=1073.15,
-        energy_closure_tolerance=0.005,
-    )
-
-    ihx_config = IHXConfig(
-        dP_He=50e3,
-        dP_CO2=100e3,
-        dT_pinch_min=10.0,
-        dT_approach=30.0,
-        n_segments=20,
-    )
-
-    if heat_rejection_mode == "coupled_cooler":
-        # Sensitivity-only coupled cooler uses an explicit larger reference geometry
-        # so the appendix comparison reflects a physically achievable duty.
-        cooler_geometry = DryCoolerGeometry(
-            tube_length=8.0,
-            n_tubes=900,
-            n_rows=6,
-            face_width=40.0,
-            face_height=15.0,
-        )
-        cooler_config = DryCoolerConfig(
-            eta_fan=0.70,
-            eta_motor=0.95,
-            dT_approach_min=10.0,
-            dT_pinch_min=5.0,
+    def build_configs(params: Dict[str, float]) -> Tuple[PlantConfig, Dict[str, Any]]:
+        cycle_config = CycleConfig(
+            P_high_min=20e6,
+            P_high_max=30e6,
+            P_low_min=7.5e6,
+            P_low_max=9.0e6,
+            f_recomp_min=0.25,
+            f_recomp_max=0.45,
+            eta_turbine=0.90,
+            eta_MC=0.89,
+            eta_RC=0.89,
+            dT_crit_margin=3.0,
+            dP_crit_margin=0.3e6,
+            dT_pinch_min=10.0,
             n_segments=10,
-            dP_CO2=30e3,
-            q_closure_tolerance=0.02,
-            geometry=cooler_geometry,
+            dP_HTR_hot=50e3,
+            dP_HTR_cold=50e3,
+            dP_LTR_hot=50e3,
+            dP_LTR_cold=50e3,
+            T_TIT_max=1073.15,
+            energy_closure_tolerance=0.005,
         )
-        energy_tol = 0.005
-    else:
-        cooler_config = DryCoolerConfig(
-            eta_fan=0.70,
-            eta_motor=0.95,
-            dT_approach_min=10.0,
-            dT_pinch_min=5.0,
+
+        ihx_config = IHXConfig(
+            dP_He=50e3,
+            dP_CO2=100e3,
+            dT_pinch_min=10.0,
+            dT_approach=params["ihx_dT_approach_K"],
             n_segments=10,
-            dP_CO2=30e3,
-            q_closure_tolerance=0.02,
         )
-        energy_tol = 0.005
 
-    plant_config = PlantConfig(
-        Q_thermal=Q_thermal_MW * 1e6,
-        T_He_hot=1123.15,
-        T_He_cold=668.15,
-        P_He=4.0e6,
-        T_ambient=T_ambient,
-        cycle_config=cycle_config,
-        ihx_config=ihx_config,
-        cooler_config=cooler_config,
-        max_iterations=100,
-        tolerance=0.1,
-        energy_closure_tolerance=energy_tol,
-        heat_rejection_mode=heat_rejection_mode,
-        T_1_boundary_target=None,
-        cooling_aux_fraction=cooling_aux_fraction,
-        headline_fom_mode="htgr_only",
-    )
+        if heat_rejection_mode == "coupled_cooler":
+            cooler_geometry = DryCoolerGeometry(
+                tube_length=8.0,
+                n_tubes=900,
+                n_rows=6,
+                face_width=40.0,
+                face_height=15.0,
+            )
+            cooler_config = DryCoolerConfig(
+                eta_fan=0.70,
+                eta_motor=0.95,
+                dT_approach_min=10.0,
+                dT_pinch_min=5.0,
+                n_segments=10,
+                dP_CO2=30e3,
+                q_closure_tolerance=0.02,
+                geometry=cooler_geometry,
+            )
+        else:
+            cooler_config = DryCoolerConfig(
+                eta_fan=0.70,
+                eta_motor=0.95,
+                dT_approach_min=10.0,
+                dT_pinch_min=5.0,
+                n_segments=10,
+                dP_CO2=30e3,
+                q_closure_tolerance=0.02,
+            )
 
-    solver = CoupledPlantSolver(plant_config)
+        plant_config = PlantConfig(
+            Q_thermal=Q_thermal_MW * 1e6,
+            T_He_hot=1123.15,
+            T_He_cold=668.15,
+            P_He=4.0e6,
+            T_ambient=T_ambient,
+            cycle_config=cycle_config,
+            ihx_config=ihx_config,
+            cooler_config=cooler_config,
+            max_iterations=100,
+            tolerance=0.1,
+            energy_closure_tolerance=energy_tol,
+            heat_rejection_mode=heat_rejection_mode,
+            T_1_boundary_target=params["T_1_boundary_target_K"],
+            cooling_aux_fraction=params["cooling_aux_fraction"],
+            headline_fom_mode="htgr_only",
+        )
+        return plant_config, {
+            "ihx_dT_approach_K": params["ihx_dT_approach_K"],
+            "T_1_boundary_target_K": params["T_1_boundary_target_K"],
+            "cooling_aux_fraction": params["cooling_aux_fraction"],
+        }
 
-    # Mid-range pressure settings and recompression split.
-    P_high = 25e6
-    P_low = 8.0e6
-    f_recomp = 0.35
+    def run_attempt(label: str, params: Dict[str, float], seed: Optional[Dict[str, float]]) -> Dict[str, Any]:
+        plant_config, tuned = build_configs(params)
+        search_config, _ = build_configs(params)
+        # Speed up search evaluations while keeping the final selected solve strict.
+        search_config.max_iterations = min(search_config.max_iterations, 20)
+        search_config.tolerance = max(search_config.tolerance, 0.3)
+        search_solver = CoupledPlantSolver(search_config)
 
-    result = solver.solve(
-        P_high=P_high,
-        P_low=P_low,
-        f_recomp=f_recomp,
-    )
+        search_cfg = SearchConfig(
+            bounds=SearchBounds(
+                P_high_min=max(plant_config.cycle_config.P_high_min, 22e6),
+                P_high_max=min(plant_config.cycle_config.P_high_max, 24e6),
+                P_low_min=max(plant_config.cycle_config.P_low_min, 8.0e6),
+                P_low_max=min(plant_config.cycle_config.P_low_max, 8.4e6),
+                f_recomp_min=max(plant_config.cycle_config.f_recomp_min, 0.33),
+                f_recomp_max=min(plant_config.cycle_config.f_recomp_max, 0.37),
+            ),
+            n_P_high=2,
+            n_P_low=2,
+            n_f_recomp=2,
+            local_rounds=0,
+            top_k=4,
+        )
+        search_outcome = search_operating_point(
+            solver=search_solver,
+            config=search_cfg,
+            initial_guess=seed,
+        )
+        best = search_outcome.best
+        solver = CoupledPlantSolver(plant_config)
+        final_result = solver.solve(
+            P_high=best.P_high,
+            P_low=best.P_low,
+            f_recomp=best.f_recomp,
+            initial_guess=seed,
+            return_trace=True,
+            verbose=verbose,
+        )
+        return {
+            "label": label,
+            "params": dict(tuned),
+            "seed": {
+                "P_high": best.P_high,
+                "P_low": best.P_low,
+                "f_recomp": best.f_recomp,
+            },
+            "search": search_outcome,
+            "result": final_result,
+            "score": _infeasibility_score(final_result),
+        }
+
+    def pick_best(attempts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return sorted(
+            attempts,
+            key=lambda a: (
+                0 if a["result"].feasible else 1,
+                0 if a["result"].converged else 1,
+                a["score"],
+            ),
+        )[0]
+
+    tuning_guard = {
+        "applied": False,
+        "notes": [],
+    }
+    base_params = {
+        "ihx_dT_approach_K": 30.0,
+        "T_1_boundary_target_K": None,
+        "cooling_aux_fraction": cooling_aux_fraction,
+    }
+    if auto_tune and tuning_mode == "moderate" and heat_rejection_mode == "fixed_boundary":
+        ihx_min, ihx_max = MODERATE_TUNING_BOUNDS["ihx_dT_approach_K"]
+        cool_min, cool_max = MODERATE_TUNING_BOUNDS["cooling_aux_fraction"]
+        ihx_before = base_params["ihx_dT_approach_K"]
+        cool_before = base_params["cooling_aux_fraction"]
+        base_params["ihx_dT_approach_K"] = _clamp(ihx_before, ihx_min, ihx_max)
+        base_params["cooling_aux_fraction"] = _clamp(cool_before, cool_min, cool_max)
+        if base_params["ihx_dT_approach_K"] != ihx_before:
+            tuning_guard["notes"].append(
+                f"Clamped ihx_dT_approach_K from {ihx_before} to {base_params['ihx_dT_approach_K']}"
+            )
+        if base_params["cooling_aux_fraction"] != cool_before:
+            tuning_guard["notes"].append(
+                f"Clamped cooling_aux_fraction from {cool_before} to {base_params['cooling_aux_fraction']}"
+            )
+        tuning_guard["applied"] = bool(tuning_guard["notes"])
+    attempts: List[Dict[str, Any]] = []
+    selected = run_attempt("operating_point_only", base_params, initial_guess)
+    attempts.append(selected)
+
+    if (
+        auto_tune
+        and tuning_mode == "moderate"
+        and heat_rejection_mode == "fixed_boundary"
+        and not selected["result"].feasible
+    ):
+        stage2: List[Dict[str, Any]] = []
+        for t1_target in [T_ambient + 8.0, T_ambient + 10.0, T_ambient + 12.0]:
+            params = dict(base_params)
+            params["T_1_boundary_target_K"] = t1_target
+            attempt = run_attempt("stage2_T1_target", params, initial_guess)
+            stage2.append(attempt)
+            if attempt["result"].feasible:
+                break
+        attempts.extend(stage2)
+        selected = pick_best(stage2)
+
+        if not selected["result"].feasible:
+            stage3: List[Dict[str, Any]] = []
+            for dT_app in [25.0, 30.0, 35.0]:
+                params = dict(selected["params"])
+                params["ihx_dT_approach_K"] = dT_app
+                attempt = run_attempt("stage3_IHX_approach", params, initial_guess)
+                stage3.append(attempt)
+                if attempt["result"].feasible:
+                    break
+            attempts.extend(stage3)
+            selected = pick_best(stage3)
+
+        if not selected["result"].feasible:
+            stage4: List[Dict[str, Any]] = []
+            for cool_frac in [0.005, 0.01, 0.015, 0.02]:
+                params = dict(selected["params"])
+                params["cooling_aux_fraction"] = cool_frac
+                attempt = run_attempt("stage4_cooling_aux", params, initial_guess)
+                stage4.append(attempt)
+                if attempt["result"].feasible:
+                    break
+            attempts.extend(stage4)
+            selected = pick_best(stage4)
+
+    selected = pick_best(attempts)
+
+    result = selected["result"]
+    selected_seed = selected["seed"]
+    selected_params = selected["params"]
+    selected_search = selected["search"]
+    _, selected_plant_config_values = build_configs(selected_params)
+    selected_plant_config, _ = build_configs(selected_params)
 
     cooling_block = {
         "heat_rejection_mode": result.heat_rejection_mode,
@@ -377,7 +601,7 @@ def run_full_plant_solve(
         cooling_block.update(
             {
                 "description": "HTGR headline mode using cooling boundary assumptions",
-                "cooling_aux_fraction_assumed": plant_config.cooling_aux_fraction,
+                "cooling_aux_fraction_assumed": selected_plant_config.cooling_aux_fraction,
             }
         )
     else:
@@ -388,23 +612,61 @@ def run_full_plant_solve(
             }
         )
 
+    attempt_summary = []
+    for att in attempts:
+        att_result = att["result"]
+        attempt_summary.append(
+            {
+                "label": att["label"],
+                "params": att["params"],
+                "seed": {
+                    "P_high_MPa": att["seed"]["P_high"] / 1e6,
+                    "P_low_MPa": att["seed"]["P_low"] / 1e6,
+                    "f_recomp": att["seed"]["f_recomp"],
+                },
+                "score": att["score"],
+                "converged": att_result.converged,
+                "feasible": att_result.feasible,
+                "convergence_reason": att_result.convergence_reason,
+                "energy_closure_rel": att_result.energy_closure_rel,
+            }
+        )
+
     results = {
         "metadata": {
             "timestamp": datetime.now().isoformat(),
             "T_ambient_C": T_ambient_C,
-            "solver_version": "2.0.0-htgr-only",
+            "solver_version": "2.1.0-feasibility-recovery",
             "heat_rejection_mode": result.heat_rejection_mode,
             "assumption_mode": result.assumption_mode,
-            "headline_fom_mode": plant_config.headline_fom_mode,
-            "energy_closure_tolerance_rel": plant_config.energy_closure_tolerance,
+            "headline_fom_mode": selected_plant_config.headline_fom_mode,
+            "energy_closure_tolerance_rel": selected_plant_config.energy_closure_tolerance,
             "scenario_id": scenario_id,
             "baseline_or_sensitivity": baseline_or_sensitivity,
             "source_assumptions_version": source_assumptions_version,
             "reactor_basis_MWth": Q_thermal_MW,
+            "auto_tune": auto_tune,
+            "tuning_mode": tuning_mode,
+            "selected_operating_point": {
+                "P_high_MPa": selected_seed["P_high"] / 1e6,
+                "P_low_MPa": selected_seed["P_low"] / 1e6,
+                "f_recomp": selected_seed["f_recomp"],
+            },
+            "selected_tuning_parameters": selected_plant_config_values,
+            "search_stage": selected_search.stage,
+            "selected_attempt_label": selected["label"],
+            "tuning_guard": tuning_guard,
+            "tuning_bounds": {
+                "T_1_boundary_target_K": [T_ambient + 8.0, T_ambient + 12.0],
+                "ihx_dT_approach_K": list(MODERATE_TUNING_BOUNDS["ihx_dT_approach_K"]),
+                "cooling_aux_fraction": list(MODERATE_TUNING_BOUNDS["cooling_aux_fraction"]),
+            },
+            "convergence_reason": result.convergence_reason,
         },
         "status": {
             "converged": result.converged,
             "feasible": result.feasible,
+            "convergence_reason": result.convergence_reason,
             "iterations": result.feasibility_report.iterations,
             "residual_norm": result.feasibility_report.residual_norm,
             "solve_time_seconds": result.feasibility_report.solve_time_seconds,
@@ -468,6 +730,9 @@ def run_full_plant_solve(
         },
         "diagnostic_breakdown": result.diagnostic_breakdown,
         "margins": result.feasibility_report.margins,
+        "search_summary": _serialize_search(selected_search),
+        "tuning_attempts": attempt_summary,
+        "solver_trace": result.solve_trace,
     }
 
     if result.cycle_result and result.cycle_result.state:
@@ -491,6 +756,13 @@ def run_full_plant_solve(
         print("=" * 60)
         print(f"Ambient Temperature: {T_ambient_C}°C")
         print(f"Heat Rejection Mode: {heat_rejection_mode}")
+        print(f"Convergence Reason: {result.convergence_reason}")
+        print(
+            "Selected Seed: "
+            f"P_high={selected_seed['P_high']/1e6:.2f} MPa, "
+            f"P_low={selected_seed['P_low']/1e6:.2f} MPa, "
+            f"f_recomp={selected_seed['f_recomp']:.3f}"
+        )
         print()
         print(result.feasibility_report.format_report())
         print()
@@ -881,7 +1153,10 @@ def build_assumptions_register(output_csv: Path) -> None:
     )
 
 
-def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
+def run_stage2_scenarios(
+    output_root: Path,
+    verbose: bool = False,
+) -> Tuple[Dict[str, Dict], Dict[str, Dict]]:
     scenarios = [
         {
             "scenario_id": "S0_BASE_30MW_OPONLY",
@@ -912,8 +1187,14 @@ def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
     scenario_dir = output_root / "scenarios"
     scenario_dir.mkdir(parents=True, exist_ok=True)
 
-    results = {}
-    for sc in scenarios:
+    results: Dict[str, Dict] = {}
+    feasibility_summaries: Dict[str, Dict] = {}
+    for idx, sc in enumerate(scenarios, start=1):
+        if verbose:
+            print(
+                f"[canonical] scenario {idx}/{len(scenarios)}: {sc['scenario_id']} "
+                f"({sc['Q_thermal_MW']} MWth, {sc['co2_accounting_mode']})"
+            )
         plant_results, plant_result = run_full_plant_solve(
             T_ambient_C=40.0,
             heat_rejection_mode="fixed_boundary",
@@ -941,12 +1222,19 @@ def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
             "scenario": sc,
             "plant": plant_results,
             "co2": co2_results,
+            "feasibility_summary": _build_feasibility_summary(sc["scenario_id"], plant_results),
         }
         results[sc["scenario_id"]] = combined
+        feasibility_summaries[sc["scenario_id"]] = combined["feasibility_summary"]
         with open(scenario_dir / f"{sc['scenario_id']}.json", "w") as f:
             json.dump(combined, f, indent=2)
+        if verbose:
+            print(
+                f"[canonical] wrote scenario file: {sc['scenario_id']}.json "
+                f"(feasible={plant_results['status']['feasible']})"
+            )
 
-    return results
+    return results, feasibility_summaries
 
 
 def build_uncertainty_summary(
@@ -954,10 +1242,11 @@ def build_uncertainty_summary(
     output_json: Path,
     samples: int = 120,
     seed: int = 20260301,
+    verbose: bool = False,
 ) -> Dict[str, float]:
     rng = np.random.default_rng(seed)
     fom_values = []
-    for _ in range(samples):
+    for i in range(1, samples + 1):
         dac_heat = float(np.clip(1750.0 * rng.normal(1.0, 0.08), 1300.0, 2300.0))
         dac_elec = float(np.clip(250.0 * rng.normal(1.0, 0.08), 150.0, 400.0))
         htse_elec = float(np.clip(37.5 * rng.normal(1.0, 0.07), 30.0, 50.0))
@@ -977,6 +1266,8 @@ def build_uncertainty_summary(
             verbose=False,
         )
         fom_values.append(out["figures_of_merit"]["CO2_reduction_t_per_MWth_per_yr"])
+        if verbose and (i == 1 or i % 10 == 0 or i == samples):
+            print(f"[canonical] uncertainty sample {i}/{samples}")
 
     arr = np.array(fom_values)
     summary = {
@@ -1143,18 +1434,29 @@ def build_constraint_margin_table(
         rows.append(
             {
                 "scenario_id": scenario_id,
-                "energy_closure_margin": margins.get("energy_closure"),
+                "energy_residual_plant_margin_rel": margins.get(
+                    "energy_residual_plant_margin_rel",
+                    margins.get("energy_closure"),
+                ),
                 "pinch_IHX_margin_K": margins.get("pinch_IHX_min"),
                 "pinch_HTR_margin_K": margins.get("pinch_HTR_min"),
                 "pinch_LTR_margin_K": margins.get("pinch_LTR_min"),
                 "W_net_W": margins.get("W_net"),
-                "T_He_return_margin_K": margins.get("T_He_return"),
+                "T_He_return_margin_K": margins.get("T_He_return_margin_K", margins.get("T_He_return")),
             }
         )
     _write_csv(
         output_csv,
         rows,
-        ["scenario_id", "energy_closure_margin", "pinch_IHX_margin_K", "pinch_HTR_margin_K", "pinch_LTR_margin_K", "W_net_W", "T_He_return_margin_K"],
+        [
+            "scenario_id",
+            "energy_residual_plant_margin_rel",
+            "pinch_IHX_margin_K",
+            "pinch_HTR_margin_K",
+            "pinch_LTR_margin_K",
+            "W_net_W",
+            "T_He_return_margin_K",
+        ],
     )
 
 
@@ -1169,13 +1471,50 @@ def report_gate_check(scenario_results: Dict[str, Dict]) -> None:
             raise RuntimeError(f"Scenario {scenario_id} missing required CO2 metadata tags")
 
 
-def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
+def generate_stage2_canonical_pack(
+    output_dir: str = None,
+    uq_samples: int = 120,
+    require_feasible: bool = True,
+    verbose: bool = False,
+) -> Dict[str, Dict]:
+    """Generate canonical Stage-2 outputs with optional feasibility hard-gating."""
     base = Path(output_dir or os.path.dirname(os.path.abspath(__file__)))
     output_root = base / "outputs" / "canonical_pack"
     output_root.mkdir(parents=True, exist_ok=True)
 
-    scenario_results = run_stage2_scenarios(output_root)
+    if verbose:
+        print(f"[canonical] output root: {output_root}")
+    scenario_results, feasibility_summaries = run_stage2_scenarios(output_root, verbose=verbose)
     report_gate_check(scenario_results)
+    if verbose:
+        print("[canonical] metadata gate checks passed")
+
+    infeasible_scenarios = [
+        summary for summary in feasibility_summaries.values()
+        if not (summary["converged"] and summary["feasible"])
+    ]
+    if require_feasible and infeasible_scenarios:
+        failure_payload = {
+            "generated_at": datetime.now().isoformat(),
+            "require_feasible": True,
+            "failed_scenarios": infeasible_scenarios,
+            "all_summaries": feasibility_summaries,
+            "message": (
+                "Canonical generation aborted: at least one scenario is infeasible "
+                "or unconverged under required-feasible mode."
+            ),
+        }
+        failure_path = output_root / "feasibility_failure_report.json"
+        with open(failure_path, "w") as f:
+            json.dump(failure_payload, f, indent=2)
+        index_path = output_root / "canonical_pack_index.json"
+        if index_path.exists():
+            index_path.unlink()
+        if verbose:
+            print(f"[canonical] wrote feasibility failure report: {failure_path}")
+            print("[canonical] canonical_pack_index.json not written due to feasibility gate failure")
+        failed_ids = ", ".join(sorted(s["scenario_id"] for s in infeasible_scenarios))
+        raise RuntimeError(f"Canonical feasibility gate failed for scenarios: {failed_ids}")
 
     # Use S0 plant state as baseline for uncertainty around process intensities.
     _, baseline_plant_result = run_full_plant_solve(
@@ -1188,9 +1527,13 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
         cooling_aux_fraction=0.01,
         verbose=False,
     )
+    if verbose:
+        print(f"[canonical] running uncertainty summary ({uq_samples} samples)")
     uncertainty = build_uncertainty_summary(
         baseline_plant_result,
         output_root / "uncertainty_summary.json",
+        samples=uq_samples,
+        verbose=verbose,
     )
 
     fom_rows = []
@@ -1247,14 +1590,75 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
                 "headline_scenario": "S0_BASE_30MW_OPONLY",
                 "scenarios": sorted(scenario_results.keys()),
                 "output_root": str(output_root),
+                "require_feasible": require_feasible,
             },
             f,
             indent=2,
         )
+    if verbose:
+        print("[canonical] wrote canonical_pack_index.json")
     return scenario_results
 
 
-def write_output_files(output_dir: str = None):
+def write_headline_feasibility_trace(
+    baseline_results: Dict[str, Any],
+    baseline_plant_result,
+    output_dir: Optional[str] = None,
+) -> Path:
+    base = Path(output_dir or os.path.dirname(os.path.abspath(__file__)))
+    trace_dir = base / "outputs" / "diagnostics"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = trace_dir / "headline_feasibility_trace.json"
+
+    report = baseline_plant_result.feasibility_report
+    violations = []
+    for v in report.violations:
+        violations.append(
+            {
+                "constraint_id": v.constraint_id,
+                "description": v.description,
+                "actual_value": v.actual_value,
+                "required_value": v.required_value,
+                "margin": v.margin,
+                "location": v.location,
+                "suggestion": v.suggestion,
+            }
+        )
+
+    payload = {
+        "generated_at": datetime.now().isoformat(),
+        "scenario_id": baseline_results.get("metadata", {}).get("scenario_id"),
+        "status": baseline_results.get("status", {}),
+        "selected_operating_point": baseline_results.get("metadata", {}).get("selected_operating_point", {}),
+        "selected_tuning_parameters": baseline_results.get("metadata", {}).get("selected_tuning_parameters", {}),
+        "selected_attempt_label": baseline_results.get("metadata", {}).get("selected_attempt_label"),
+        "search_summary": baseline_results.get("search_summary", {}),
+        "tuning_attempts": baseline_results.get("tuning_attempts", []),
+        "trace": baseline_results.get("solver_trace", []),
+        "feasibility_report": {
+            "feasible": report.feasible,
+            "converged": report.converged,
+            "iterations": report.iterations,
+            "residual_norm": report.residual_norm,
+            "constraints": report.constraints,
+            "margins": report.margins,
+            "violations": violations,
+        },
+        "convergence_reason": baseline_plant_result.convergence_reason,
+    }
+    with open(trace_path, "w") as f:
+        json.dump(payload, f, indent=2)
+    return trace_path
+
+
+def write_output_files(
+    output_dir: str = None,
+    baseline_results: Optional[Dict] = None,
+    baseline_plant_result=None,
+    baseline_co2_results: Optional[Dict] = None,
+    include_co2_outputs: bool = True,
+    verbose: bool = False,
+):
     """Generate all required output files."""
     if output_dir is None:
         output_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1272,8 +1676,15 @@ def write_output_files(output_dir: str = None):
             json.dump(assumptions, f, indent=2)
         print(f"Written: assumptions.json (yaml not available)")
 
-    # 2. Run plant solve and write results_baseline.json
-    results, plant_result = run_full_plant_solve(T_ambient_C=40.0, verbose=False)
+    # 2. Run (or reuse) plant solve and write results_baseline.json
+    if baseline_results is not None and baseline_plant_result is not None:
+        results, plant_result = baseline_results, baseline_plant_result
+        if verbose:
+            print("Reusing baseline plant solve from TEST 2 for output files")
+    else:
+        if verbose:
+            print("Computing baseline plant solve for output files...")
+        results, plant_result = run_full_plant_solve(T_ambient_C=40.0, verbose=verbose)
     with open(output_path / 'results_baseline.json', 'w') as f:
         json.dump(results, f, indent=2)
     print(f"Written: results_baseline.json")
@@ -1297,8 +1708,20 @@ def write_output_files(output_dir: str = None):
         f.write(f"T_5 (turb inlet):    {plant_result.T_5 - 273.15:.2f}°C\n")
     print(f"Written: feasibility_report.txt")
 
-    # 4. Run CO2 reduction analysis and write report
-    co2_results = run_co2_reduction_analysis(plant_result, Q_thermal=30e6, verbose=False)
+    if not include_co2_outputs:
+        if verbose:
+            print("Skipping CO2 output files due to fail-fast infeasible headline mode")
+        return
+
+    # 4. Run (or reuse) CO2 reduction analysis and write report
+    if baseline_co2_results is not None:
+        co2_results = baseline_co2_results
+        if verbose:
+            print("Reusing CO2 reduction results from TEST 3 for output files")
+    else:
+        if verbose:
+            print("Computing CO2 reduction results for output files...")
+        co2_results = run_co2_reduction_analysis(plant_result, Q_thermal=30e6, verbose=verbose)
 
     with open(output_path / 'co2_reduction_results.json', 'w') as f:
         json.dump(co2_results, f, indent=2)
@@ -1377,6 +1800,7 @@ def main():
     print("=" * 70)
 
     dostal_passed, dostal_results = run_dostal_validation(verbose=True)
+    test1_status = "PASS" if dostal_passed else "FAIL"
 
     print(f"\nDostal Validation: {'PASSED' if dostal_passed else 'FAILED'}")
     if dostal_passed:
@@ -1396,7 +1820,14 @@ def main():
     )
 
     plant_feasible = plant_results['status']['feasible']
+    test2_status = "PASS" if plant_feasible else "FAIL"
     print(f"\nHTGR Headline Solve: {'PASSED (FEASIBLE)' if plant_feasible else 'FAILED (INFEASIBLE)'}")
+
+    trace_path = write_headline_feasibility_trace(
+        baseline_results=plant_results,
+        baseline_plant_result=plant_result,
+    )
+    print(f"Written: {trace_path}")
 
     # Optional sensitivity: coupled cooler mode retained for appendix evidence
     print("\n" + "=" * 70)
@@ -1419,6 +1850,40 @@ def main():
     except Exception as exc:
         print(f"Coupled-Cooler Sensitivity: FAILED ({exc})")
 
+    allow_infeasible_diagnostic = _is_allow_infeasible_diagnostic_enabled()
+    fail_fast = _should_fail_fast_after_headline(
+        headline_feasible=plant_feasible,
+        allow_infeasible_diagnostic=allow_infeasible_diagnostic,
+    )
+    if fail_fast:
+        print("\n" + "=" * 70)
+        print("FAIL-FAST GATE")
+        print("=" * 70)
+        print("Headline solve is infeasible. Stopping before Test 3 and canonical pack generation.")
+        print("Set ALLOW_INFEASIBLE_DIAGNOSTIC=1 to continue for diagnostics only.")
+        print("\n" + "=" * 70)
+        print("GENERATING OUTPUT FILES")
+        print("=" * 70)
+        write_output_files(
+            baseline_results=plant_results,
+            baseline_plant_result=plant_result,
+            baseline_co2_results=None,
+            include_co2_outputs=False,
+            verbose=True,
+        )
+        test3_status = "SKIP"
+        test4_status = "SKIP"
+        print("\n" + "#" * 70)
+        print("#  TEST SUMMARY")
+        print("#" * 70)
+        print(f"\n  Test 1 (Dostal Validation):     {test1_status}")
+        print(f"  Test 2 (HTGR Headline Solve):   {test2_status}")
+        print(f"  Test 3 (CO2 Reduction):         {test3_status}")
+        print(f"  Test 4 (Canonical Pack Tags):   {test4_status}")
+        print("\n  OVERALL: SOME TESTS FAILED")
+        print("#" * 70 + "\n")
+        return 1
+
     # Test 3: CO2 Reduction Analysis
     print("\n" + "=" * 70)
     print("TEST 3: CO2 REDUCTION ANALYSIS (PROCESS ALLOCATION)")
@@ -1435,6 +1900,7 @@ def main():
     )
 
     co2_positive = co2_results['co2_balance_t_yr']['NET_REDUCTION'] > 0
+    test3_status = "PASS" if co2_positive else "FAIL"
     print(f"\nCO2 Reduction Analysis: {'PASSED (NET POSITIVE)' if co2_positive else 'FAILED (NET NEGATIVE)'}")
     print(f"  Net CO2 Reduction: {co2_results['co2_balance_t_yr']['NET_REDUCTION']:.1f} tonnes/year")
     print(f"  FOM (CO2/MWth/yr): {co2_results['figures_of_merit']['CO2_reduction_t_per_MWth_per_yr']:.1f} t_CO2/MWth/year")
@@ -1444,27 +1910,50 @@ def main():
     print("GENERATING OUTPUT FILES")
     print("=" * 70)
 
-    write_output_files()
+    write_output_files(
+        baseline_results=plant_results,
+        baseline_plant_result=plant_result,
+        baseline_co2_results=co2_results,
+        include_co2_outputs=True,
+        verbose=True,
+    )
 
     print("\n" + "=" * 70)
     print("GENERATING STAGE-2 CANONICAL SYNC PACK")
     print("=" * 70)
-    scenario_results = generate_stage2_canonical_pack()
-    print("Canonical scenarios generated:")
-    for sid in sorted(scenario_results.keys()):
-        print(f"  - {sid}")
+    uq_samples_env = os.getenv("STAGE2_UQ_SAMPLES", "120")
+    try:
+        uq_samples = max(int(uq_samples_env), 1)
+    except ValueError:
+        uq_samples = 120
+    print(f"Canonical pack UQ samples: {uq_samples}")
+    canonical_ok = True
+    scenario_results: Dict[str, Dict] = {}
+    try:
+        scenario_results = generate_stage2_canonical_pack(
+            uq_samples=uq_samples,
+            require_feasible=True,
+            verbose=True,
+        )
+        print("Canonical scenarios generated:")
+        for sid in sorted(scenario_results.keys()):
+            print(f"  - {sid}")
+    except Exception as exc:
+        canonical_ok = False
+        print(f"Canonical pack generation failed: {exc}")
+    test4_status = "PASS" if canonical_ok else "FAIL"
 
     # Summary
     print("\n" + "#" * 70)
     print("#  TEST SUMMARY")
     print("#" * 70)
-    print(f"\n  Test 1 (Dostal Validation):     {'PASS' if dostal_passed else 'FAIL'}")
-    print(f"  Test 2 (HTGR Headline Solve):   {'PASS' if plant_feasible else 'FAIL'}")
-    print(f"  Test 3 (CO2 Reduction):         {'PASS' if co2_positive else 'FAIL'}")
-    print("  Test 4 (Canonical Pack Tags):   PASS")
+    print(f"\n  Test 1 (Dostal Validation):     {test1_status}")
+    print(f"  Test 2 (HTGR Headline Solve):   {test2_status}")
+    print(f"  Test 3 (CO2 Reduction):         {test3_status}")
+    print(f"  Test 4 (Canonical Pack Tags):   {test4_status}")
 
     # Return overall pass/fail
-    overall_pass = dostal_passed and plant_feasible and co2_positive
+    overall_pass = dostal_passed and plant_feasible and co2_positive and canonical_ok
     print(f"\n  OVERALL: {'ALL TESTS PASSED' if overall_pass else 'SOME TESTS FAILED'}")
     print("#" * 70 + "\n")
 
