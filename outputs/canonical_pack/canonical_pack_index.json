@@ -12,5 +12,7 @@
   "strict_interim_gate_failures": [],
   "report_map_gate_passed": true,
   "report_map_gate_failures": [],
-  "output_root": "C:\\Users\\Student\\RR\\htgr-stage2-sco2-plant-model\\outputs\\canonical_pack"
+  "output_root": "C:\\Users\\Student\\RR\\htgr-stage2-sco2-plant-model\\outputs\\canonical_pack",
+  "headline_scenario_id": "S2_30MW_FUELDISP",
+  "boundary_statement": "Headline metric is project-level avoided-emissions FoM (fuel_displacement), not audited corporate GHG inventory."
 }

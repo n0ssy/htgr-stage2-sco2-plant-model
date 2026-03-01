@@ -897,6 +897,8 @@ def build_assumptions_register(output_csv: Path) -> None:
             "owner": "Model",
             "scenario": "S0_BASE_30MW_OPONLY",
             "status": "locked",
+            "justification": "HTTR-aligned baseline used for headline comparability and conservative claim framing.",
+            "rr_requirement_alignment": "Feasible method and assumption traceability for final report evidence.",
         },
         {
             "parameter": "Sensitivity reactor thermal power",
@@ -906,6 +908,8 @@ def build_assumptions_register(output_csv: Path) -> None:
             "owner": "Model",
             "scenario": "S3_36MW_FUELDISP",
             "status": "sensitivity_only",
+            "justification": "Scalability check only; not used for headline claim.",
+            "rr_requirement_alignment": "Sensitivity and feasibility evidence around the baseline design point.",
         },
         {
             "parameter": "Headline accounting mode",
@@ -915,6 +919,8 @@ def build_assumptions_register(output_csv: Path) -> None:
             "owner": "Model",
             "scenario": HEADLINE_SCENARIO_ID,
             "status": "locked",
+            "justification": "Aligns with fuel-factory concept by quantifying avoided emissions from displaced fossil fuel service.",
+            "rr_requirement_alignment": "FoM relevance to project concept with explicit boundary statement and limitations.",
         },
         {
             "parameter": "Operational-only accounting mode",
@@ -924,6 +930,8 @@ def build_assumptions_register(output_csv: Path) -> None:
             "owner": "Model",
             "scenario": "S0_BASE_30MW_OPONLY;S1_36MW_OPONLY",
             "status": "sensitivity_only",
+            "justification": "Retained as boundary sensitivity to show dependence of FoM on accounting choice.",
+            "rr_requirement_alignment": "Alternative-boundary sensitivity and assumptions transparency.",
         },
         {
             "parameter": "Headline concept mode",
@@ -933,6 +941,8 @@ def build_assumptions_register(output_csv: Path) -> None:
             "owner": "Model",
             "scenario": HEADLINE_SCENARIO_ID,
             "status": "locked",
+            "justification": "Ensures allocation behavior represents integrated fuel production rather than pure DAC maximization.",
+            "rr_requirement_alignment": "Concept consistency between model objective and report claims.",
         },
         {
             "parameter": "Headline methanol floor",
@@ -942,6 +952,8 @@ def build_assumptions_register(output_csv: Path) -> None:
             "owner": "Model",
             "scenario": HEADLINE_SCENARIO_ID,
             "status": "locked",
+            "justification": "Hard production floor enforces minimum fuel output for headline concept credibility.",
+            "rr_requirement_alignment": "Feasibility-constrained optimization and defensible product claim.",
         },
         {
             "parameter": "Energy closure tolerance",
@@ -951,6 +963,8 @@ def build_assumptions_register(output_csv: Path) -> None:
             "owner": "Model",
             "scenario": "ALL",
             "status": "locked",
+            "justification": "Single tolerance prevents inconsistent solver/report pass criteria.",
+            "rr_requirement_alignment": "Verification rigor and numerical consistency in reported outputs.",
         },
         {
             "parameter": "Fuel emission factor",
@@ -960,12 +974,68 @@ def build_assumptions_register(output_csv: Path) -> None:
             "owner": "Model",
             "scenario": "S2_30MW_FUELDISP",
             "status": "assumption",
+            "justification": "Required for fuel-displacement accounting; sensitivity handled via UQ and scenario analysis.",
+            "rr_requirement_alignment": "Explicit assumptions and uncertainty context for FoM confidence.",
+        },
+        {
+            "parameter": "Headline heat rejection representation",
+            "value": "fixed_boundary",
+            "units": "mode",
+            "source_doc": "Locked decision",
+            "owner": "Model",
+            "scenario": HEADLINE_SCENARIO_ID,
+            "status": "locked",
+            "justification": "HTGR-only scope avoids claiming detailed HRS design while keeping thermodynamic closure.",
+            "rr_requirement_alignment": "Scope-appropriate modelling with clear limitations and assumptions.",
+        },
+        {
+            "parameter": "Coupled cooler usage",
+            "value": "sensitivity_only",
+            "units": "policy",
+            "source_doc": "Locked decision",
+            "owner": "Model",
+            "scenario": "S0_BASE_30MW_OPONLY;S1_36MW_OPONLY;S3_36MW_FUELDISP",
+            "status": "sensitivity_only",
+            "justification": "Used to quantify potential cooling-model impact without controlling headline FoM.",
+            "rr_requirement_alignment": "Sensitivity evidence without over-claiming off-scope subsystem fidelity.",
+        },
+        {
+            "parameter": "UQ configuration",
+            "value": "40 samples, seed 20260301",
+            "units": "config",
+            "source_doc": "run_tests.py build_uncertainty_summary",
+            "owner": "Model",
+            "scenario": HEADLINE_SCENARIO_ID,
+            "status": "locked",
+            "justification": "Provides reproducible uncertainty bounds within schedule and runtime constraints.",
+            "rr_requirement_alignment": "FoM confidence bounds and reproducibility evidence.",
+        },
+        {
+            "parameter": "Boundary statement policy",
+            "value": "project_avoided_emissions_not_inventory",
+            "units": "policy",
+            "source_doc": "source docs/RR-UES_Final_Deliverables_Guidance.pdf",
+            "owner": "Model",
+            "scenario": HEADLINE_SCENARIO_ID,
+            "status": "locked",
+            "justification": "Prevents overstatement by separating project FoM from audited corporate inventory reporting.",
+            "rr_requirement_alignment": "Clear communication of assumptions, model limits, and claim boundaries.",
         },
     ]
     _write_csv(
         output_csv,
         rows,
-        ["parameter", "value", "units", "source_doc", "owner", "scenario", "status"],
+        [
+            "parameter",
+            "value",
+            "units",
+            "source_doc",
+            "owner",
+            "scenario",
+            "status",
+            "justification",
+            "rr_requirement_alignment",
+        ],
     )
 
 
@@ -1331,6 +1401,7 @@ def build_methods_and_limitations_sheet(output_md: Path) -> None:
 def build_report_number_map(
     scenario_results: Dict[str, Dict],
     uncertainty: Dict[str, float],
+    source_assumptions_version: str,
     output_csv: Path,
 ) -> Dict[str, object]:
     rows = []
@@ -1353,6 +1424,7 @@ def build_report_number_map(
                     "headline_or_sensitivity": role,
                     "source_file": f"outputs/canonical_pack/scenarios/{scenario_id}.json",
                     "source_field": "co2.figures_of_merit.CO2_reduction_t_per_MWth_per_yr",
+                    "source_assumptions_version": source_assumptions_version,
                 },
                 {
                     "report_section": "6",
@@ -1364,6 +1436,7 @@ def build_report_number_map(
                     "headline_or_sensitivity": role,
                     "source_file": f"outputs/canonical_pack/scenarios/{scenario_id}.json",
                     "source_field": "plant.power_MW.W_net",
+                    "source_assumptions_version": source_assumptions_version,
                 },
                 {
                     "report_section": "6",
@@ -1375,6 +1448,7 @@ def build_report_number_map(
                     "headline_or_sensitivity": role,
                     "source_file": f"outputs/canonical_pack/scenarios/{scenario_id}.json",
                     "source_field": "co2.production_rates.MeOH_produced_t_yr",
+                    "source_assumptions_version": source_assumptions_version,
                 },
             ]
         )
@@ -1392,6 +1466,7 @@ def build_report_number_map(
                 "headline_or_sensitivity": "headline",
                 "source_file": "outputs/canonical_pack/uncertainty_summary.json",
                 "source_field": "p50",
+                "source_assumptions_version": source_assumptions_version,
             },
             {
                 "report_section": "8",
@@ -1403,6 +1478,7 @@ def build_report_number_map(
                 "headline_or_sensitivity": "headline",
                 "source_file": "outputs/canonical_pack/uncertainty_summary.json",
                 "source_field": "ci95_low",
+                "source_assumptions_version": source_assumptions_version,
             },
             {
                 "report_section": "8",
@@ -1414,6 +1490,7 @@ def build_report_number_map(
                 "headline_or_sensitivity": "headline",
                 "source_file": "outputs/canonical_pack/uncertainty_summary.json",
                 "source_field": "ci95_high",
+                "source_assumptions_version": source_assumptions_version,
             },
         ]
     )
@@ -1428,12 +1505,19 @@ def build_report_number_map(
         "headline_or_sensitivity",
         "source_file",
         "source_field",
+        "source_assumptions_version",
     ]
     _write_csv(output_csv, rows, fieldnames)
 
     failures = []
     for idx, row in enumerate(rows, start=1):
-        for required_key in ("scenario_id", "co2_accounting_mode", "source_file", "source_field"):
+        for required_key in (
+            "scenario_id",
+            "co2_accounting_mode",
+            "source_file",
+            "source_field",
+            "source_assumptions_version",
+        ):
             if str(row.get(required_key, "")).strip() == "":
                 failures.append(f"row {idx} missing {required_key}")
     if not any(r["scenario_id"] == HEADLINE_SCENARIO_ID for r in rows):
@@ -1441,6 +1525,151 @@ def build_report_number_map(
 
     gate = {"passed": len(failures) == 0, "failures": failures, "n_rows": len(rows)}
     return gate
+
+
+def build_validation_matrix(
+    output_csv: Path,
+    gate_results: Dict[str, Dict[str, object]],
+) -> None:
+    """
+    Build report-facing validation matrix with explicit anchors and acceptance bands.
+    """
+    dostal_passed, dostal = run_dostal_validation(verbose=False)
+    eta_model = float(dostal["eta_thermal"])
+    eta_ref = float(dostal["eta_expected"])
+    eta_tol = float(dostal["eta_tolerance"])
+    eta_error_rel = abs(eta_model - eta_ref) / max(abs(eta_ref), 1e-12)
+    eta_band_rel = eta_tol / max(abs(eta_ref), 1e-12)
+
+    secondary = gate_results.get("secondary_cycle_anchor", {})
+    sec_eta = float(secondary.get("eta_thermal", np.nan))
+    sec_band = secondary.get("acceptance_band", [np.nan, np.nan])
+    sec_ref = float(np.mean(sec_band)) if all(np.isfinite(sec_band)) else np.nan
+    sec_error_rel = (
+        abs(sec_eta - sec_ref) / max(abs(sec_ref), 1e-12)
+        if np.isfinite(sec_eta) and np.isfinite(sec_ref)
+        else np.nan
+    )
+    sec_band_rel = (
+        (float(sec_band[1]) - float(sec_band[0])) / max(abs(sec_ref), 1e-12)
+        if len(sec_band) == 2 and np.isfinite(sec_ref)
+        else np.nan
+    )
+
+    checks = gate_results.get("process_analytic_validation", {}).get("checks", [])
+    check_map = {c.get("name"): c for c in checks}
+    dac_check = check_map.get("dac_energy_intensity_closure", {})
+    htse_check = check_map.get("htse_energy_intensity_closure", {})
+    meoh_check = check_map.get("methanol_stoichiometry_closure", {})
+
+    accounting = gate_results.get("accounting_mode_consistency", {})
+    op_val = float(accounting.get("operational_only_t_yr", np.nan))
+    fd_val = float(accounting.get("fuel_displacement_t_yr", np.nan))
+    delta_val = float(accounting.get("absolute_delta_t_yr", np.nan))
+
+    rows = [
+        {
+            "anchor_id": "V-A1",
+            "validation_class": "cycle_benchmark",
+            "reference_source": "Dostal 2004 recompression cycle benchmark",
+            "metric": "eta_thermal",
+            "scenario_id": "benchmark_dostal",
+            "model_value": eta_model,
+            "reference_value": eta_ref,
+            "error_rel": eta_error_rel,
+            "acceptance_band_rel": eta_band_rel,
+            "status": "PASS" if dostal_passed else "FAIL",
+        },
+        {
+            "anchor_id": "V-A2",
+            "validation_class": "cycle_secondary_anchor",
+            "reference_source": "Internal alternate operating-point acceptance band",
+            "metric": "eta_thermal",
+            "scenario_id": "benchmark_secondary_cycle",
+            "model_value": sec_eta,
+            "reference_value": sec_ref,
+            "error_rel": sec_error_rel,
+            "acceptance_band_rel": sec_band_rel,
+            "status": "PASS" if bool(secondary.get("passed", False)) else "FAIL",
+        },
+        {
+            "anchor_id": "V-P1",
+            "validation_class": "process_analytic",
+            "reference_source": "DAC energy-intensity closure identity check",
+            "metric": "m_CO2_closure_ratio",
+            "scenario_id": HEADLINE_SCENARIO_ID,
+            "model_value": dac_check.get("value"),
+            "reference_value": dac_check.get("target"),
+            "error_rel": dac_check.get("error"),
+            "acceptance_band_rel": 1e-9,
+            "status": "PASS" if bool(dac_check.get("passed", False)) else "FAIL",
+        },
+        {
+            "anchor_id": "V-P2",
+            "validation_class": "process_analytic",
+            "reference_source": "HTSE energy-intensity closure identity check",
+            "metric": "m_H2_closure_ratio",
+            "scenario_id": HEADLINE_SCENARIO_ID,
+            "model_value": htse_check.get("value"),
+            "reference_value": htse_check.get("target"),
+            "error_rel": htse_check.get("error"),
+            "acceptance_band_rel": 1e-9,
+            "status": "PASS" if bool(htse_check.get("passed", False)) else "FAIL",
+        },
+        {
+            "anchor_id": "V-P3",
+            "validation_class": "process_analytic",
+            "reference_source": "Methanol stoichiometry closure identity check",
+            "metric": "m_MeOH_closure_ratio",
+            "scenario_id": HEADLINE_SCENARIO_ID,
+            "model_value": meoh_check.get("value"),
+            "reference_value": meoh_check.get("target"),
+            "error_rel": meoh_check.get("error"),
+            "acceptance_band_rel": 1e-9,
+            "status": "PASS" if bool(meoh_check.get("passed", False)) else "FAIL",
+        },
+        {
+            "anchor_id": "V-C1",
+            "validation_class": "boundary_consistency",
+            "reference_source": "Accounting-mode consistency from identical plant state",
+            "metric": "absolute_mode_delta_tCO2_yr",
+            "scenario_id": HEADLINE_SCENARIO_ID,
+            "model_value": delta_val,
+            "reference_value": 0.0,
+            "error_rel": 0.0 if np.isfinite(delta_val) and delta_val > 0 else np.nan,
+            "acceptance_band_rel": np.nan,
+            "status": "PASS" if bool(accounting.get("passed", False)) else "FAIL",
+        },
+        {
+            "anchor_id": "V-C1-DETAIL",
+            "validation_class": "boundary_consistency",
+            "reference_source": "Accounting-mode consistency (operational vs displacement values)",
+            "metric": "operational_vs_fuel_displacement_tCO2_yr",
+            "scenario_id": HEADLINE_SCENARIO_ID,
+            "model_value": fd_val,
+            "reference_value": op_val,
+            "error_rel": (abs(fd_val - op_val) / max(abs(op_val), 1e-12)) if np.isfinite(fd_val) and np.isfinite(op_val) else np.nan,
+            "acceptance_band_rel": np.nan,
+            "status": "PASS" if bool(accounting.get("passed", False)) else "FAIL",
+        },
+    ]
+
+    _write_csv(
+        output_csv,
+        rows,
+        [
+            "anchor_id",
+            "validation_class",
+            "reference_source",
+            "metric",
+            "scenario_id",
+            "model_value",
+            "reference_value",
+            "error_rel",
+            "acceptance_band_rel",
+            "status",
+        ],
+    )
 
 
 def run_process_analytic_validation_checks() -> Dict[str, object]:
@@ -1881,9 +2110,14 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
     build_equation_sheet(output_root / "equation_sheet.md")
     build_constraint_margin_table(scenario_results, output_root / "constraint_margin_table.csv")
     build_methods_and_limitations_sheet(output_root / "methods_and_limitations_sheet.md")
+    build_validation_matrix(
+        output_csv=output_root / "validation_matrix.csv",
+        gate_results=gate_results,
+    )
     report_map_gate = build_report_number_map(
         scenario_results=scenario_results,
         uncertainty=uncertainty,
+        source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
         output_csv=output_root / "report_number_map.csv",
     )
     if not report_map_gate["passed"]:
@@ -1894,8 +2128,13 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
             {
                 "generated_at": datetime.now().isoformat(),
                 "headline_scenario": HEADLINE_SCENARIO_ID,
+                "headline_scenario_id": HEADLINE_SCENARIO_ID,
                 "scenarios": sorted(scenario_results.keys()),
                 "source_assumptions_version": SOURCE_ASSUMPTIONS_VERSION,
+                "boundary_statement": (
+                    "Headline metric is project-level avoided-emissions FoM "
+                    "(fuel_displacement), not audited corporate GHG inventory."
+                ),
                 "strict_interim_gates_passed": gate_results["overall"]["passed"],
                 "strict_interim_gate_failures": gate_results["overall"]["failures"],
                 "report_map_gate_passed": report_map_gate["passed"],
