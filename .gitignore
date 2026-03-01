@@ -20,6 +20,10 @@ outputs/
 *.log
 *.tmp
 *.swp
+results_*.json
+co2_reduction_results.json
+co2_reduction_report.txt
+feasibility_report.txt
 
 # Personal/non-project files
 *Resume*
