@@ -4,7 +4,7 @@ Solves IHX and sCO2 cycle as a simultaneous system with embedded feasibility con
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 import numpy as np
 import sys
 import os
@@ -160,7 +160,9 @@ class PlantResult:
     heat_rejection_mode: str = "fixed_boundary"
     assumption_mode: str = "htgr_only"
     energy_closure_rel: float = 0.0
+    convergence_reason: str = "unknown"
     diagnostic_breakdown: Dict[str, float] = field(default_factory=dict)
+    solve_trace: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class CoupledPlantSolver:
@@ -211,6 +213,9 @@ class CoupledPlantSolver:
         P_low: Optional[float] = None,
         f_recomp: Optional[float] = None,
         m_dot_CO2: Optional[float] = None,
+        initial_guess: Optional[Dict[str, float]] = None,
+        return_trace: bool = False,
+        verbose: bool = False,
     ) -> PlantResult:
         import time
 
@@ -227,9 +232,11 @@ class CoupledPlantSolver:
                 0.0,
             )
 
-        P_high = P_high or 0.5 * (cycle_cfg.P_high_min + cycle_cfg.P_high_max)
-        P_low = P_low or 0.5 * (cycle_cfg.P_low_min + cycle_cfg.P_low_max)
-        f_recomp = 0.35 if f_recomp is None else f_recomp
+        seed = initial_guess or {}
+
+        P_high = P_high or seed.get("P_high") or 0.5 * (cycle_cfg.P_high_min + cycle_cfg.P_high_max)
+        P_low = P_low or seed.get("P_low") or 0.5 * (cycle_cfg.P_low_min + cycle_cfg.P_low_max)
+        f_recomp = seed.get("f_recomp", 0.35) if f_recomp is None else f_recomp
 
         m_dot_He = self.ihx.required_He_flow(
             cfg.Q_thermal,
@@ -239,7 +246,7 @@ class CoupledPlantSolver:
         )
 
         if m_dot_CO2 is None:
-            m_dot_CO2 = cfg.Q_thermal / (1200.0 * 200.0)
+            m_dot_CO2 = seed.get("m_dot_CO2", cfg.Q_thermal / (1200.0 * 200.0))
 
         T_1_min = max(
             CO2_T_CRIT + cycle_cfg.dT_crit_margin,
@@ -247,17 +254,19 @@ class CoupledPlantSolver:
         )
 
         if mode == "fixed_boundary":
-            T_1 = max(cfg.T_1_boundary_target or T_1_min, T_1_min)
+            T_1 = max(seed.get("T_1", cfg.T_1_boundary_target or T_1_min), T_1_min)
         else:
-            T_1 = T_1_min + 2.0
+            T_1 = max(seed.get("T_1", T_1_min + 2.0), T_1_min)
 
-        T_5 = cfg.T_He_hot - cfg.ihx_config.dT_approach
+        T_5 = seed.get("T_5", cfg.T_He_hot - cfg.ihx_config.dT_approach)
 
         max_iter = cfg.max_iterations
         tol = cfg.tolerance
         converged = False
+        convergence_reason = "max_iterations_reached"
         residual_norm = float("inf")
         last_good_state: Optional[Dict[str, float]] = None
+        solve_trace: List[Dict[str, Any]] = []
 
         cooler_diag = {
             "W_cooling_aux": 0.0,
@@ -289,6 +298,7 @@ class CoupledPlantSolver:
                     m_dot_CO2 = last_good_state["m_dot_CO2"]
                     converged = last_good_state["converged"]
                     residual_norm = last_good_state["residual_norm"]
+                    convergence_reason = "fallback_last_good_cycle_state"
                     break
                 solve_time = time.time() - start_time
                 return self._failed_result(
@@ -296,6 +306,8 @@ class CoupledPlantSolver:
                     iteration,
                     residual_norm,
                     solve_time,
+                    convergence_reason="cycle_failed",
+                    solve_trace=solve_trace if return_trace else None,
                 )
 
             T_4 = cycle_result.state.T_4
@@ -315,6 +327,7 @@ class CoupledPlantSolver:
                     m_dot_CO2 = last_good_state["m_dot_CO2"]
                     converged = last_good_state["converged"]
                     residual_norm = last_good_state["residual_norm"]
+                    convergence_reason = "fallback_last_good_ihx_state"
                     break
                 solve_time = time.time() - start_time
                 return self._failed_result(
@@ -322,6 +335,8 @@ class CoupledPlantSolver:
                     iteration,
                     residual_norm,
                     solve_time,
+                    convergence_reason="ihx_failed",
+                    solve_trace=solve_trace if return_trace else None,
                 )
 
             T_5_new = ihx_result.T_CO2_out
@@ -341,6 +356,8 @@ class CoupledPlantSolver:
                         iteration,
                         residual_norm,
                         solve_time,
+                        convergence_reason="cooler_failed",
+                        solve_trace=solve_trace if return_trace else None,
                     )
 
                 T_1_new = max(cool.T_CO2_out, T_1_min)
@@ -375,8 +392,10 @@ class CoupledPlantSolver:
                     "residual_norm": residual_norm,
                 }
                 if cool.converged and cool.feasible:
+                    T_1 = T_1_new
                     T_5 = T_5_new
                     converged = True
+                    convergence_reason = "coupled_cooler_converged"
                     residual_norm = min(residual_norm, abs(T_5 - T_5_old))
                     break
 
@@ -412,8 +431,35 @@ class CoupledPlantSolver:
                 dT_1 = abs(T_1 - T_1_old)
 
             residual_norm = max(dT_1, dT_5, dm_rel * 10.0)
+            if return_trace:
+                solve_trace.append(
+                    {
+                        "iteration": iteration + 1,
+                        "T_1_K": float(T_1),
+                        "T_5_K": float(T_5),
+                        "m_dot_CO2_kg_s": float(m_dot_CO2),
+                        "dT_1_K": float(dT_1),
+                        "dT_5_K": float(dT_5),
+                        "dm_rel": float(dm_rel),
+                        "residual_norm": float(residual_norm),
+                        "Q_target_W": float(cfg.Q_thermal),
+                        "Q_IHX_W": float(ihx_result.Q_IHX),
+                        "cycle_energy_residual_rel": float(cycle_result.energy_closure_rel),
+                        "cooling_mode": cooler_diag["assumption_mode"],
+                    }
+                )
+            if verbose and (iteration == 0 or (iteration + 1) % 5 == 0):
+                print(
+                    "[CoupledSolver] "
+                    f"iter={iteration + 1}/{max_iter} "
+                    f"T1={T_1 - 273.15:.2f}C "
+                    f"T5={T_5 - 273.15:.2f}C "
+                    f"m_dot={m_dot_CO2:.2f}kg/s "
+                    f"res={residual_norm:.3e}"
+                )
             if dT_5 < tol and dm_rel < 0.001 and (dT_1 < tol or mode == "fixed_boundary"):
                 converged = True
+                convergence_reason = "converged_tolerance"
                 break
 
         solve_time = time.time() - start_time
@@ -448,6 +494,8 @@ class CoupledPlantSolver:
                 iteration,
                 residual_norm,
                 solve_time,
+                convergence_reason="final_cycle_failed",
+                solve_trace=solve_trace if return_trace else None,
             )
 
         ihx_result = self.ihx.solve(
@@ -464,6 +512,8 @@ class CoupledPlantSolver:
                 iteration,
                 residual_norm,
                 solve_time,
+                convergence_reason="final_ihx_failed",
+                solve_trace=solve_trace if return_trace else None,
             )
 
         if mode == "coupled_cooler":
@@ -480,6 +530,8 @@ class CoupledPlantSolver:
                     iteration,
                     residual_norm,
                     solve_time,
+                    convergence_reason="final_cooler_failed",
+                    solve_trace=solve_trace if return_trace else None,
                 )
             cooler_diag = {
                 "W_cooling_aux": cool.W_fan,
@@ -507,7 +559,13 @@ class CoupledPlantSolver:
         violations: List[ConstraintViolation] = []
 
         constraints.update(cycle_result.constraints)
-        margins.update(cycle_result.margins)
+        for key, value in cycle_result.margins.items():
+            if key == "energy_residual":
+                margins["energy_residual_cycle_rel"] = value
+            elif key == "energy_residual_margin":
+                margins["energy_residual_cycle_margin_rel"] = value
+            else:
+                margins[key] = value
         for v in cycle_result.violations:
             violations.append(
                 ConstraintViolation(
@@ -535,7 +593,7 @@ class CoupledPlantSolver:
 
         if mode == "coupled_cooler":
             constraints["P04"] = cool.feasible
-            margins["cooling_closure"] = 1.0 - cooler_diag["Q_error_rel"]
+            margins["cooling_closure_margin_rel"] = 1.0 - cooler_diag["Q_error_rel"]
             margins["cooling_Q_error_rel"] = cooler_diag["Q_error_rel"]
             if not constraints["P04"]:
                 violations.append(
@@ -554,20 +612,23 @@ class CoupledPlantSolver:
                 )
         else:
             constraints["P04"] = True
-            margins["cooling_closure"] = 1.0
+            margins["cooling_closure_margin_rel"] = 1.0
             margins["cooling_assumed_aux_MW"] = cooler_diag["W_cooling_aux"] / 1e6
 
         T_He_return = ihx_result.T_He_out
-        constraints["T04"] = T_He_return >= cfg.T_He_cold - 10.0
-        margins["T_He_return"] = T_He_return - cfg.T_He_cold
+        T_He_return_required = cfg.T_He_cold - 10.0
+        constraints["T04"] = T_He_return >= T_He_return_required
+        margins["T_He_return_margin_K"] = T_He_return - T_He_return_required
+        # Legacy alias for downstream compatibility.
+        margins["T_He_return"] = margins["T_He_return_margin_K"]
         if not constraints["T04"]:
             violations.append(
                 ConstraintViolation(
                     constraint_id="T04",
                     description="Helium return temperature too low",
                     actual_value=T_He_return - 273.15,
-                    required_value=cfg.T_He_cold - 273.15,
-                    margin=margins["T_He_return"],
+                    required_value=T_He_return_required - 273.15,
+                    margin=margins["T_He_return_margin_K"],
                     location="IHX helium outlet",
                 )
             )
@@ -595,8 +656,11 @@ class CoupledPlantSolver:
         Q_out = W_net + cycle_result.Q_reject + W_fan + W_aux
         energy_residual = abs(Q_in - Q_out) / max(Q_in, 1.0)
         constraints["E03_plant"] = energy_residual < cfg.energy_closure_tolerance
+        margins["energy_residual_plant_rel"] = energy_residual
+        margins["energy_residual_plant_margin_rel"] = cfg.energy_closure_tolerance - energy_residual
+        # Legacy aliases retained for existing reports.
         margins["energy_residual"] = energy_residual
-        margins["energy_closure"] = cfg.energy_closure_tolerance - energy_residual
+        margins["energy_closure"] = margins["energy_residual_plant_margin_rel"]
         if not constraints["E03_plant"]:
             violations.append(
                 ConstraintViolation(
@@ -604,7 +668,7 @@ class CoupledPlantSolver:
                     description="Plant energy balance not closed",
                     actual_value=energy_residual * 100.0,
                     required_value=cfg.energy_closure_tolerance * 100.0,
-                    margin=(cfg.energy_closure_tolerance - energy_residual) * 100.0,
+                    margin=margins["energy_residual_plant_margin_rel"] * 100.0,
                     location="Plant energy balance",
                 )
             )
@@ -632,7 +696,12 @@ class CoupledPlantSolver:
             "energy_residual": energy_residual,
             "cooling_Q_model": cooler_diag["Q_model"],
             "cooling_Q_error_rel": cooler_diag["Q_error_rel"],
+            "T_He_return_actual_K": T_He_return,
+            "T_He_return_required_K": T_He_return_required,
+            "T_He_return_margin_K": margins["T_He_return_margin_K"],
         }
+        if not converged and convergence_reason == "max_iterations_reached":
+            convergence_reason = "max_iterations_reached_no_tolerance_convergence"
 
         return PlantResult(
             converged=converged,
@@ -661,7 +730,9 @@ class CoupledPlantSolver:
             heat_rejection_mode=mode,
             assumption_mode=("htgr_only" if mode == "fixed_boundary" else "coupled_cooler_sensitivity"),
             energy_closure_rel=energy_residual,
+            convergence_reason=convergence_reason,
             diagnostic_breakdown=diagnostic_breakdown,
+            solve_trace=solve_trace if return_trace else [],
         )
 
     def _failed_result(
@@ -670,6 +741,8 @@ class CoupledPlantSolver:
         iteration: int,
         residual_norm: float,
         solve_time: float,
+        convergence_reason: str = "failed",
+        solve_trace: Optional[List[Dict[str, Any]]] = None,
     ) -> PlantResult:
         feasibility_report = FeasibilityReport(
             feasible=False,
@@ -717,5 +790,7 @@ class CoupledPlantSolver:
             heat_rejection_mode=self.config.heat_rejection_mode,
             assumption_mode="failed",
             energy_closure_rel=1.0,
+            convergence_reason=convergence_reason,
             diagnostic_breakdown={"error": error_msg},
+            solve_trace=solve_trace or [],
         )
