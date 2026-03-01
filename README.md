@@ -13,6 +13,7 @@ Primary onboarding entry point:
 
 Single canonical project context:
 - `docs/canonical/CANONICAL_PROJECT_CONTEXT.md`
+- `docs/canonical/HTGR_STAGE2_MODEL_EXPLAINER_AND_RISKS.md`
 
 Operational coordination docs:
 - `SESSION_HANDBOOK.md`

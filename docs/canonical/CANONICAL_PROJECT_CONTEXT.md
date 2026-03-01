@@ -4,6 +4,9 @@ Last updated: 2026-03-01
 
 This is the single canonical reference for project scope, assumptions, scenario IDs, teammate input usage, and reporting rules.
 
+Companion deep-dive (model behavior, outputs, and risk register):
+- `/Users/stefioannidis/Documents/UCL/Y2/RR/copies/Corrected_Approach/sco2_plant/docs/canonical/HTGR_STAGE2_MODEL_EXPLAINER_AND_RISKS.md`
+
 ## 1) What Is Authoritative
 
 Use source priority in this order.
@@ -108,4 +111,3 @@ For any new assumption or number:
 3. Confirm tags and conversion checks pass.
 4. Update canonical pack artifacts.
 5. Update this file only if scope/policy changed.
-
