@@ -41,6 +41,19 @@ Key files:
 - `outputs/canonical_pack/feasibility_failure_report.json` (written only when `require_feasible=True` gate fails)
 - `outputs/diagnostics/headline_feasibility_trace.json`
 
+## Final Report Pack
+
+Report drafting and traceability artifacts live in:
+- `reports/final/UCL_Group3_Final_Report_Draft_v2.md`
+- `reports/final/UCL_Group3_Final_Report_Draft_v2.docx`
+- `reports/final/qa/numbers_lock_table.csv`
+- `reports/final/qa/claim_to_evidence_table.csv`
+- `reports/final/qa/report_sync_check.json`
+
+The report headline basis is locked to:
+- scenario: `S0_BASE_30MW_OPONLY`
+- boundary: `operational_only`
+
 ## Running the Pipeline
 
 From repo root:

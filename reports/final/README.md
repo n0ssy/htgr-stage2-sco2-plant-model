@@ -20,3 +20,10 @@
 ## Notes
 - 36 MWth content is retained only as historical/sensitivity context.
 - Safety transients are explicitly provenance-labeled (literature/external workstream) unless branch-reproducible.
+
+## Quick QA Recheck
+From repo root:
+
+```bash
+python reports/final/qa/validate_report_sync.py
+```
