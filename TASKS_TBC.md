@@ -24,6 +24,7 @@ This backlog is the coordination point for all parallel AI sessions.
 | T008 | End-to-end runtime benchmark and optimization (reduce long run time) | TODO | unassigned | T003 | run-time profile + parameter tuning plan |
 | T009 | RR meeting question pack refresh from latest model outputs | TODO | unassigned | T003,T005 | updated teammate-facing question doc |
 | T010 | Add automated regression checks for scenario tags + conversion checks | TODO | unassigned | T003 | CI-like script or local gate checklist |
+| T011 | Canonical context consolidation + archive cleanup | DONE | current | none | single canonical context doc + archived legacy refs |
 
 ## Planning Protocol (Mandatory Before Major Changes)
 1. `IN_RESEARCH`: collect code evidence + literature references.

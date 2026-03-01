@@ -27,15 +27,16 @@ Primary entry point is now `AI_ONBOARDING.md`. This file remains the operational
 
 ## Session Startup Checklist
 1. Read `AI_ONBOARDING.md`.
-2. Read this file.
-3. Read `TASKS_TBC.md`.
-4. Claim a task in `PARALLEL_SESSION_LEDGER.md`.
-5. Confirm no overlap with active sessions.
-6. If task is major:
+2. Read `docs/canonical/CANONICAL_PROJECT_CONTEXT.md`.
+3. Read this file.
+4. Read `TASKS_TBC.md`.
+5. Claim a task in `PARALLEL_SESSION_LEDGER.md`.
+6. Confirm no overlap with active sessions.
+7. If task is major:
    - run research,
    - draft a plan section in the ledger,
    - only then implement.
-7. Commit changes with modular scope and clear messages.
+8. Commit changes with modular scope and clear messages.
 
 ## Session Close Checklist
 1. Update `TASKS_TBC.md` status and notes.

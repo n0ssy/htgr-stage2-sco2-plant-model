@@ -9,11 +9,12 @@ Use this as the first file for any new AI session.
 - Full audit trail from task claim to output artifact.
 
 ## Read Order (Mandatory)
-1. `SESSION_HANDBOOK.md`
-2. `TASKS_TBC.md`
-3. `PARALLEL_SESSION_LEDGER.md`
-4. `PLANNING_PROTOCOL.md`
-5. `PR_TRACKER.md`
+1. `docs/canonical/CANONICAL_PROJECT_CONTEXT.md`
+2. `SESSION_HANDBOOK.md`
+3. `TASKS_TBC.md`
+4. `PARALLEL_SESSION_LEDGER.md`
+5. `PLANNING_PROTOCOL.md`
+6. `PR_TRACKER.md`
 
 ## 60-Second Startup
 1. Check current branch:
@@ -75,6 +76,7 @@ Use this as the first file for any new AI session.
 4. `36 MWth` is sensitivity only.
 
 ## Source of Truth
+- Canonical context in `docs/canonical/CANONICAL_PROJECT_CONTEXT.md`
 - RR docs in `source docs/`
 - Assumptions and tasks in `TASKS_TBC.md`
 - Active ownership in `PARALLEL_SESSION_LEDGER.md`

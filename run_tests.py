@@ -760,7 +760,7 @@ def build_teammate_reconciliation_table(
         )
         return
 
-    for pdf_path in sorted(teammate_dir.glob("*.pdf")):
+    for pdf_path in sorted(teammate_dir.rglob("*.pdf")):
         if pdf_path.name.startswith("M1 "):
             # M1 is intentionally excluded from reconciliation scope.
             continue
@@ -832,7 +832,7 @@ def build_assumptions_register(output_csv: Path) -> None:
             "parameter": "Sensitivity reactor thermal power",
             "value": 36.0,
             "units": "MWth",
-            "source_doc": "teammate_resources/Presentation Demo (1).pdf",
+            "source_doc": "teammate_resources/archive_raw_pdfs/Presentation Demo (1).pdf",
             "owner": "Model",
             "scenario": "S1_36MW_OPONLY",
             "status": "sensitivity_only",
@@ -868,7 +868,7 @@ def build_assumptions_register(output_csv: Path) -> None:
             "parameter": "Fuel emission factor",
             "value": 3.15,
             "units": "kgCO2/kg_fuel",
-            "source_doc": "teammate_resources/Prim's Initial Research M6.pdf",
+            "source_doc": "teammate_resources/archive_raw_pdfs/Prim's Initial Research M6.pdf",
             "owner": "Model",
             "scenario": "S2_30MW_FUELDISP",
             "status": "assumption",
