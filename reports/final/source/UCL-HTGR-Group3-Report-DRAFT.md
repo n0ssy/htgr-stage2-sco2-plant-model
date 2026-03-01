@@ -219,6 +219,12 @@ headline figure in the main report body.
 - Headline CO2 claims are reported as project-level avoided-emissions
   FoMs, not audited inventory claims.
 
+This headline boundary was selected because the project objective is an
+integrated fuel-factory concept, not a DAC-only operational metric. The
+`fuel_displacement` basis therefore quantifies avoided fossil-service
+impact for produced methanol, while `operational_only` is retained to
+show sensitivity to accounting boundary choice.
+
 # Section 5 - Verification and Validation
 
 ## 5.1 Verification
@@ -257,6 +263,17 @@ The final authoritative run demonstrates:
 
 This provides a branch-reproducible feasibility basis for the results in
 Section 6.
+
+Table 5.1 — Compact V&V Evidence Summary
+
+| Check | Model value | Acceptance basis | Result | Source artifact |
+|---|---:|---|---|---|
+| Dostal thermal efficiency | 41.10% | 45.0% +/- 5.0% | Pass | `run_tests.py` Test 1 output |
+| Headline plant closure | 0.377% | <= 0.5% | Pass | `S2_30MW_FUELDISP.json` |
+| Headline feasibility | Converged=True, Feasible=True | Both must be true | Pass | `S2_30MW_FUELDISP.json` |
+| Objective consistency gap | 0.0 relative | <= 0.01 | Pass | `S2_30MW_FUELDISP.json` |
+| Methanol floor policy | 9955.4 >= 8833.0 t/yr | Must satisfy floor | Pass | `S2_30MW_FUELDISP.json` |
+| Accounting-mode consistency | Tagged + conversion checks pass | No boundary mismatch | Pass | canonical pack metadata |
 
 # Section 6 - Results & Figures of Merit
 
@@ -310,6 +327,12 @@ reduction and FOM.
 Uncertainty context from the committed canonical UQ artifact (40
 samples): FoM mean 1004.9 tCO2/MWth/year, p10/p50/p90 of 892.2 / 1007.9
 / 1220.1, and a 95% interval of 690.2 to 1238.5 tCO2/MWth/year.
+
+Interpreted for decision-making, these bounds indicate the headline case
+remains net-positive across sampled parameter uncertainty while showing
+material spread in magnitude. The uncertainty interval is therefore used
+to communicate confidence and range, not to replace the single locked
+headline FoM value.
 
 ## 6.3 Secondary Figures of Merit
 
