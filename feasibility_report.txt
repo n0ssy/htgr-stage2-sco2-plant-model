@@ -1,0 +1,39 @@
+============================================================
+FEASIBILITY REPORT
+============================================================
+Status: FEASIBLE
+Converged: True
+Iterations: 48
+Residual norm: 8.20e-02
+
+
+MARGINS (distance to constraint boundary):
+  P_crit_margin: 623000.00 [OK]
+  T_He_return: 0.92 [OK]
+  T_TIT_margin: 280.01 [OK]
+  T_crit_margin: 19.02 [OK]
+  W_gross: 9824888.81 [OK]
+  W_net: 9628391.04 [OK]
+  cooling_assumed_aux_MW: 0.10 [OK]
+  cooling_closure: 1.00 [OK]
+  energy_closure: 0.00 [OK]
+  energy_residual: 0.00 [OK]
+  energy_residual_margin: 0.00 [OK]
+  pinch_HTR_min: 0.98 [OK]
+  pinch_IHX_min: 13.37 [OK]
+  pinch_LTR_min: 3.02 [OK]
+============================================================
+
+KEY PLANT OUTPUTS:
+----------------------------------------
+Net Power:           9.628 MW
+Gross Power:         9.825 MW
+Cooling Aux Power:   98.2 kW
+Thermal Efficiency:  32.85%
+Net Efficiency:      32.09%
+Heat Reject Mode:    fixed_boundary
+Assumption Mode:     htgr_only
+Energy Closure:      0.377%
+CO2 Mass Flow:       162.5 kg/s
+T_1 (comp inlet):    50.00°C
+T_5 (turb inlet):    519.99°C

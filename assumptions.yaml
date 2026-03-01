@@ -1,0 +1,143 @@
+metadata:
+  generated_at: '2026-02-12T22:41:29.479740'
+  description: Complete list of assumptions and default values used in the sCO2 plant
+    simulation
+fluid_properties:
+  CO2_critical_temperature_K: 304.13
+  CO2_critical_pressure_Pa: 7377000.0
+  property_source: CoolProp library
+  helium_model: CoolProp (real gas)
+  air_model: CoolProp
+reactor_conditions:
+  Q_thermal_W: 30000000.0
+  Q_thermal_MW: 30.0
+  T_He_hot_K: 1123.15
+  T_He_hot_C: 850.0
+  T_He_cold_K: 668.15
+  T_He_cold_C: 395.0
+  P_He_Pa: 4000000.0
+  P_He_MPa: 4.0
+  reference: HTTR design parameters
+ambient_conditions:
+  T_ambient_design_K: 313.15
+  T_ambient_design_C: 40.0
+  atmospheric_pressure_Pa: 101325.0
+cycle_parameters:
+  pressure_bounds:
+    P_high_min_MPa: 20.0
+    P_high_max_MPa: 30.0
+    P_low_min_MPa: 7.5
+    P_low_max_MPa: 9.0
+  recompression_fraction_bounds:
+    f_recomp_min: 0.25
+    f_recomp_max: 0.45
+  turbomachinery_efficiencies:
+    eta_turbine: 0.9
+    eta_main_compressor: 0.89
+    eta_recompressor: 0.89
+    reference: Dostal (2004)
+  supercritical_margins:
+    dT_crit_margin_K: 3.0
+    dP_crit_margin_Pa: 300000.0
+    dP_crit_margin_MPa: 0.3
+  temperature_limits:
+    T_TIT_max_K: 1073.15
+    T_TIT_max_C: 800.0
+    description: Maximum turbine inlet temperature (material limit)
+heat_exchanger_parameters:
+  discretization:
+    n_segments: 10
+    description: Number of segments for enthalpy-based HX models
+  pinch_constraints:
+    dT_pinch_min_K: 10.0
+    description: Minimum pinch temperature difference (all HX)
+  IHX:
+    dP_He_Pa: 50000.0
+    dP_He_kPa: 50.0
+    dP_CO2_Pa: 100000.0
+    dP_CO2_kPa: 100.0
+    dT_approach_K: 30.0
+    description: He-CO2 intermediate heat exchanger
+  HTR:
+    dP_hot_Pa: 50000.0
+    dP_hot_kPa: 50.0
+    dP_cold_Pa: 50000.0
+    dP_cold_kPa: 50.0
+    description: High-temperature recuperator
+  LTR:
+    dP_hot_Pa: 50000.0
+    dP_hot_kPa: 50.0
+    dP_cold_Pa: 50000.0
+    dP_cold_kPa: 50.0
+    description: Low-temperature recuperator
+dry_cooler_parameters:
+  role_in_htgr_scope: Boundary-condition sensitivity only (not headline FoM driver)
+  dT_approach_min_K: 10.0
+  dT_pinch_min_K: 5.0
+  dP_CO2_Pa: 30000.0
+  dP_CO2_kPa: 30.0
+  eta_fan: 0.7
+  eta_motor: 0.95
+  fan_power_model: Physical (NOT constant factor)
+  fan_power_equation: W_fan = (V_dot_air * dP_air) / (eta_fan * eta_motor)
+  air_side_dP_correlation: Kays & London method for finned tube banks
+  geometry:
+    tube_OD_m: 0.0254
+    tube_ID_m: 0.0229
+    tube_length_m: 6.0
+    n_tubes: 200
+    n_rows: 4
+    fin_pitch_m: 0.003
+    face_width_m: 8.0
+    face_height_m: 3.0
+solver_settings:
+  max_iterations: 100
+  temperature_tolerance_K: 0.1
+  mass_flow_tolerance_relative: 0.001
+  energy_closure_tolerance: 0.005
+  relaxation_factor: 0.5
+htgr_headline_modes:
+  heat_rejection_mode_default: fixed_boundary
+  headline_fom_mode: htgr_only
+  coupled_cooler_mode: sensitivity_appendix_only
+  cooling_aux_fraction_default: 0.01
+feasibility_constraints:
+  embedded_in_solver: true
+  constraints_list:
+  - 'T01: T_comp_inlet > T_critical + margin'
+  - 'T02: P_low > P_critical + margin'
+  - 'T03: T_TIT <= T_TIT_max'
+  - 'T04: T_He_return >= T_He_in_required'
+  - 'P01: IHX pinch >= dT_pinch_min at all segments'
+  - 'P02: HTR pinch >= dT_pinch_min at all segments'
+  - 'P03: LTR pinch >= dT_pinch_min at all segments'
+  - 'P04: Cooling closure satisfied (fixed-boundary assumption or coupled cooler solve)'
+  - 'E01: W_turbine > W_comp_main + W_comp_recomp'
+  - 'E02: W_net > 0 (after parasitics)'
+  - 'E03: Energy closure < 0.5%'
+process_allocation:
+  DAC_solid_sorbent_TVSA:
+    heat_intensity_kWh_th_per_t_CO2: 1750
+    elec_intensity_kWh_e_per_t_CO2: 250
+    T_regen_min_C: 100
+    capacity_factor: 0.9
+    reference: Climeworks-type solid sorbent DAC
+  HTSE_SOEC:
+    elec_intensity_kWh_e_per_kg_H2: 37.5
+    heat_intensity_kWh_th_per_kg_H2: 6.5
+    capacity_factor: 0.9
+    reference: Idaho National Laboratory HTSE studies
+  methanol_synthesis:
+    kg_CO2_per_kg_MeOH: 1.375
+    kg_H2_per_kg_MeOH: 0.1875
+    overall_conversion: 0.97
+    reference: CO2 + 3H2 -> CH3OH + H2O stoichiometry
+  grid_parameters:
+    grid_CO2_intensity_g_per_kWh: 400
+    allow_grid_export_default: false
+    description: Average grid emission factor for optional displaced electricity scenario
+  objective: max_CO2_net
+  co2_boundary_mode_headline: operational_only
+  enforce_htse_heat_constraint_default: true
+  description: Constrained optimization to maximize net CO2 reduction under HTGR-only
+    scope

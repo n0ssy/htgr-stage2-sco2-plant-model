@@ -1,0 +1,28 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime outputs and temporary artifacts
+outputs/
+*.log
+*.tmp
+*.swp
+
+# Personal/non-project files
+*Resume*
+
+# Local notebooks checkpoints
+.ipynb_checkpoints/

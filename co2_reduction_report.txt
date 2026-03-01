@@ -1,0 +1,59 @@
+======================================================================
+CO2 REDUCTION ANALYSIS REPORT
+HTGR + sCO2 Cycle + Process Integration
+======================================================================
+
+PLANT CONFIGURATION:
+----------------------------------------
+Reactor Thermal Power:     30.0 MW
+Net Electrical Power:      9.628 MW
+Waste Heat Available:      20.06 MW
+Waste Heat Temperature:    188.2 °C
+
+OPTIMAL ENERGY ALLOCATION:
+----------------------------------------
+Electricity to HTSE:       2.859 MW
+Electricity to DAC:        1.906 MW
+Heat to DAC:               10.031 MW
+Heat to HTSE:              0.496 MW
+Electricity to Grid:       0.000 MW
+Heat to Cooler:            9.54 MW
+
+ANNUAL PRODUCTION (90% capacity factor):
+----------------------------------------
+Hydrogen Production:       601.6 tonnes/year
+CO2 Captured (DAC):        45221.8 tonnes/year
+Methanol Production:       3112.1 tonnes/year
+
+CO2 BALANCE (tonnes/year):
+----------------------------------------
++ Grid Displacement:       0.0
++ DAC Capture:             45221.8
+- Embodied in Products:    311.2
+----------------------------------------
+= NET CO2 REDUCTION:       45221.8 tonnes/year
+
+======================================================================
+PRIMARY FIGURES OF MERIT
+======================================================================
+CO2 Reduction per MWth:    1507.4 t_CO2/MWth/year
+Specific CO2 Reduction:    191.20 g_CO2/kWh_th
+
+CO2 Boundary Mode:         operational_only
+
+COOLING AUXILIARY METRICS:
+----------------------------------------
+Cooling Aux Power:         0.098 MW
+Heat Rejected:             20.06 MW
+Cooling Aux Ratio:         0.49%
+
+SCENARIO METADATA:
+----------------------------------------
+scenario_name: headline_htgr_only
+co2_boundary_mode: operational_only
+allow_grid_export: False
+grid_CO2_intensity_g_per_kWh: 400.0
+enforce_htse_heat_constraint: True
+heat_margin_W: 9535326.502257213
+elec_margin_W: 4765562.318462045
+======================================================================
