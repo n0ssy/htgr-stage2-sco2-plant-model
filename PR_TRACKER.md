@@ -6,7 +6,8 @@ Branch: `codex/htgr-stage2-sync`
 1. `d29464a` - `chore: bootstrap htgr model repository snapshot`
 2. `3309cef` - `feat: add scenario-tagged canonical sync pipeline and report gates`
 3. `8bdded9` - `docs: add parallel session handoff ledger and planning protocol`
-4. `pending` - `docs: consolidate canonical context and archive legacy references`
+4. `9db0244` - `docs: consolidate canonical context and archive legacy references`
+5. `fb7eb52` - `fix: support archived teammate PDFs in reconciliation parser`
 
 ## Suggested PR Split
 1. **PR-A Bootstrap**
@@ -19,8 +20,11 @@ Branch: `codex/htgr-stage2-sync`
    - Commit: `8bdded9`
    - Purpose: handoff standards, task queue, planning workflow.
 4. **PR-D Canonical Context Cleanup**
-   - Commit: `pending`
+   - Commit: `9db0244`
    - Purpose: single canonical context doc, archive clutter, keep parser compatibility.
+5. **PR-E Reconciliation Parser Compatibility**
+   - Commit: `fb7eb52`
+   - Purpose: keep teammate extraction working after teammate resource archival.
 
 ## If/When Remote Is Added
 ```bash
