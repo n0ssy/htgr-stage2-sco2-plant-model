@@ -1,60 +1,78 @@
 {
   "metadata": {
-    "timestamp": "2026-02-12T21:49:34.110541",
+    "timestamp": "2026-03-01T16:38:03.261427",
     "description": "HTGR-only CO2 reduction analysis with explicit boundary assumptions",
+    "co2_accounting_mode": "operational_only",
     "co2_boundary_mode": "operational_only",
     "allow_grid_export": false,
     "enforce_htse_heat_constraint": true,
-    "scenario_name": "headline_htgr_only"
+    "scenario_name": "headline_htgr_only",
+    "scenario_id": "S0_BASE_30MW_OPONLY",
+    "baseline_or_sensitivity": "baseline",
+    "source_assumptions_version": "v2",
+    "conversion_checks_passed": true,
+    "boundary_statement": "Headline operational-only boundary"
   },
   "plant_inputs": {
     "Q_thermal_MW": 30.0,
-    "W_net_MW": 9.628391036167,
-    "W_fan_MW": 0.09824888812415307,
-    "Q_waste_available_MW": 20.06188996675453,
-    "T_waste_C": 188.2342831345661
+    "W_net_MW": 9.939310289228523,
+    "W_fan_MW": 0.10142153356355635,
+    "Q_waste_available_MW": 19.727464191914773,
+    "T_waste_C": 177.42058352099747
   },
   "allocation": {
-    "W_to_HTSE_MW": 2.859337391077227,
-    "W_to_DAC_MW": 1.906224927384818,
-    "Q_to_DAC_MW": 10.030944983377266,
-    "Q_to_HTSE_MW": 0.4956184811200527,
+    "W_to_HTSE_MW": 2.981793086768557,
+    "W_to_DAC_MW": 1.9878620578457047,
+    "Q_to_DAC_MW": 9.863732095957387,
+    "Q_to_HTSE_MW": 0.5168441350398832,
     "W_to_grid_MW": 0.0,
-    "Q_to_cooler_MW": 9.535326502257213,
+    "Q_to_cooler_MW": 9.346887960917504,
     "optimization_converged": true
   },
   "production_rates": {
-    "H2_produced_kg_s": 0.02118027697094242,
-    "H2_produced_t_yr": 601.5588376843913,
-    "CO2_captured_DAC_kg_s": 1.5922134894249627,
-    "CO2_captured_DAC_t_yr": 45221.79277248949,
-    "MeOH_produced_kg_s": 0.10957263286300879,
-    "MeOH_produced_t_yr": 3112.064386953918
+    "H2_produced_kg_s": 0.022087356198285606,
+    "H2_produced_t_yr": 627.3215567667161,
+    "CO2_captured_DAC_kg_s": 1.5656717612630773,
+    "CO2_captured_DAC_t_yr": 44467.95885591212,
+    "MeOH_produced_kg_s": 0.11426525606579753,
+    "MeOH_produced_t_yr": 3245.343520339811
   },
   "co2_balance_t_yr": {
     "avoided_grid_displacement": 0.0,
-    "captured_DAC": 45221.79277248949,
-    "embodied_in_products": 311.2064386953918,
-    "NET_REDUCTION": 45221.79277248949
+    "captured_DAC": 44467.95885591212,
+    "embodied_in_products": 324.53435203398107,
+    "displaced_fossil": 10222.832089070404,
+    "reemitted_synthetic": 4600.358082955918,
+    "NET_REDUCTION": 44467.95885591212
   },
   "figures_of_merit": {
-    "CO2_reduction_t_per_MWth_per_yr": 1507.3930924163164,
-    "specific_CO2_reduction_kg_per_kWh_th": 0.19119648559314006,
+    "CO2_reduction_t_per_MWth_per_yr": 1482.2652951970706,
+    "specific_CO2_reduction_kg_per_kWh_th": 0.18800929670181007,
+    "co2_accounting_mode": "operational_only",
     "co2_boundary_mode": "operational_only",
+    "conversion_checks_passed": true,
     "description": "Primary FOM: tonnes CO2 reduced per year per MW thermal input"
   },
   "cooling_auxiliary": {
-    "cooling_aux_power_MW": 0.09824888812415307,
-    "heat_rejected_MW": 20.06188996675453,
-    "cooling_aux_percent_of_rejected_heat": 0.4897289751213159
+    "cooling_aux_power_MW": 0.10142153356355635,
+    "heat_rejected_MW": 19.727464191914773,
+    "cooling_aux_percent_of_rejected_heat": 0.5141133831337713
   },
   "scenario_metadata": {
     "scenario_name": "headline_htgr_only",
+    "scenario_id": "S0_BASE_30MW_OPONLY",
+    "baseline_or_sensitivity": "baseline",
+    "source_assumptions_version": "v2",
+    "co2_accounting_mode": "operational_only",
     "co2_boundary_mode": "operational_only",
     "allow_grid_export": false,
     "grid_CO2_intensity_g_per_kWh": 400.0,
     "enforce_htse_heat_constraint": true,
-    "heat_margin_W": 9535326.502257213,
-    "elec_margin_W": 4765562.318462045
+    "apply_neutrality_condition": true,
+    "fuel_emission_factor_kgco2_per_kg": 3.15,
+    "displacement_factor": 1.0,
+    "conversion_checks_passed": true,
+    "heat_margin_W": 9346887.960917505,
+    "elec_margin_W": 4969655.1446142625
   }
 }
