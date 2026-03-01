@@ -1,5 +1,5 @@
 metadata:
-  generated_at: '2026-03-01T16:38:03.261501'
+  generated_at: '2026-03-01T20:47:55.317884'
   description: Complete list of assumptions and default values used in the sCO2 plant
     simulation
 fluid_properties:
@@ -137,8 +137,8 @@ process_allocation:
     allow_grid_export_default: false
     description: Average grid emission factor for optional displaced electricity scenario
   objective: max_CO2_net
-  co2_accounting_mode_headline: operational_only
-  co2_boundary_mode_headline: operational_only
+  co2_accounting_mode_headline: fuel_displacement
+  co2_boundary_mode_headline: fuel_displacement
   apply_neutrality_condition_default: true
   fuel_emission_factor_kgco2_per_kg_default: 3.15
   displacement_factor_default: 1.0

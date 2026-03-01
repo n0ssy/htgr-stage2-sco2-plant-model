@@ -1,17 +1,17 @@
 {
   "metadata": {
-    "timestamp": "2026-03-01T16:38:03.261427",
+    "timestamp": "2026-03-01T20:47:55.317802",
     "description": "HTGR-only CO2 reduction analysis with explicit boundary assumptions",
-    "co2_accounting_mode": "operational_only",
-    "co2_boundary_mode": "operational_only",
+    "co2_accounting_mode": "fuel_displacement",
+    "co2_boundary_mode": "fuel_displacement",
     "allow_grid_export": false,
     "enforce_htse_heat_constraint": true,
     "scenario_name": "headline_htgr_only",
-    "scenario_id": "S0_BASE_30MW_OPONLY",
+    "scenario_id": "S2_30MW_FUELDISP",
     "baseline_or_sensitivity": "baseline",
     "source_assumptions_version": "v2",
     "conversion_checks_passed": true,
-    "boundary_statement": "Headline operational-only boundary"
+    "boundary_statement": "Headline fuel_displacement boundary"
   },
   "plant_inputs": {
     "Q_thermal_MW": 30.0,
@@ -43,13 +43,13 @@
     "embodied_in_products": 324.53435203398107,
     "displaced_fossil": 10222.832089070404,
     "reemitted_synthetic": 4600.358082955918,
-    "NET_REDUCTION": 44467.95885591212
+    "NET_REDUCTION": 9898.297737036424
   },
   "figures_of_merit": {
-    "CO2_reduction_t_per_MWth_per_yr": 1482.2652951970706,
-    "specific_CO2_reduction_kg_per_kWh_th": 0.18800929670181007,
-    "co2_accounting_mode": "operational_only",
-    "co2_boundary_mode": "operational_only",
+    "CO2_reduction_t_per_MWth_per_yr": 329.94325790121417,
+    "specific_CO2_reduction_kg_per_kWh_th": 0.041849728297972365,
+    "co2_accounting_mode": "fuel_displacement",
+    "co2_boundary_mode": "fuel_displacement",
     "conversion_checks_passed": true,
     "description": "Primary FOM: tonnes CO2 reduced per year per MW thermal input"
   },
@@ -60,11 +60,11 @@
   },
   "scenario_metadata": {
     "scenario_name": "headline_htgr_only",
-    "scenario_id": "S0_BASE_30MW_OPONLY",
+    "scenario_id": "S2_30MW_FUELDISP",
     "baseline_or_sensitivity": "baseline",
     "source_assumptions_version": "v2",
-    "co2_accounting_mode": "operational_only",
-    "co2_boundary_mode": "operational_only",
+    "co2_accounting_mode": "fuel_displacement",
+    "co2_boundary_mode": "fuel_displacement",
     "allow_grid_export": false,
     "grid_CO2_intensity_g_per_kWh": 400.0,
     "enforce_htse_heat_constraint": true,

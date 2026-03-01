@@ -1,13 +1,13 @@
 {
   "metadata": {
-    "timestamp": "2026-03-01T16:36:42.130602",
+    "timestamp": "2026-03-01T20:46:38.541769",
     "T_ambient_C": 40.0,
     "solver_version": "2.1.0-feasibility-recovery",
     "heat_rejection_mode": "fixed_boundary",
     "assumption_mode": "htgr_only",
     "headline_fom_mode": "htgr_only",
     "energy_closure_tolerance_rel": 0.005,
-    "scenario_id": "S0_BASE_30MW_OPONLY",
+    "scenario_id": "S2_30MW_FUELDISP",
     "baseline_or_sensitivity": "baseline",
     "source_assumptions_version": "v2",
     "reactor_basis_MWth": 30.0,
@@ -51,7 +51,7 @@
     "convergence_reason": "converged_tolerance",
     "iterations": 48,
     "residual_norm": 0.08089518008762298,
-    "solve_time_seconds": 49.89739489555359,
+    "solve_time_seconds": 47.91869378089905,
     "energy_closure_rel": 0.004346081724319607,
     "cycle_solver_status": "CONVERGED"
   },

@@ -31,15 +31,15 @@ CO2 BALANCE (tonnes/year):
 + DAC Capture:             44468.0
 - Embodied in Products:    324.5
 ----------------------------------------
-= NET CO2 REDUCTION:       44468.0 tonnes/year
+= NET CO2 REDUCTION:       9898.3 tonnes/year
 
 ======================================================================
 PRIMARY FIGURES OF MERIT
 ======================================================================
-CO2 Reduction per MWth:    1482.3 t_CO2/MWth/year
-Specific CO2 Reduction:    188.01 g_CO2/kWh_th
+CO2 Reduction per MWth:    329.9 t_CO2/MWth/year
+Specific CO2 Reduction:    41.85 g_CO2/kWh_th
 
-CO2 Boundary Mode:         operational_only
+CO2 Boundary Mode:         fuel_displacement
 
 COOLING AUXILIARY METRICS:
 ----------------------------------------
@@ -50,11 +50,11 @@ Cooling Aux Ratio:         0.51%
 SCENARIO METADATA:
 ----------------------------------------
 scenario_name: headline_htgr_only
-scenario_id: S0_BASE_30MW_OPONLY
+scenario_id: S2_30MW_FUELDISP
 baseline_or_sensitivity: baseline
 source_assumptions_version: v2
-co2_accounting_mode: operational_only
-co2_boundary_mode: operational_only
+co2_accounting_mode: fuel_displacement
+co2_boundary_mode: fuel_displacement
 allow_grid_export: False
 grid_CO2_intensity_g_per_kWh: 400.0
 enforce_htse_heat_constraint: True
