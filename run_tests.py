@@ -119,8 +119,8 @@ def get_assumptions() -> dict:
 
         'heat_exchanger_parameters': {
             'discretization': {
-                'n_segments': 10,
-                'description': 'Number of segments for enthalpy-based HX models'
+                'n_segments': 20,
+                'description': 'Number of segments for cycle/IHX enthalpy-based HX models'
             },
             'pinch_constraints': {
                 'dT_pinch_min_K': 10.0,
@@ -231,6 +231,11 @@ def get_assumptions() -> dict:
                 'description': 'Average grid emission factor for optional displaced electricity scenario'
             },
             'objective': 'max_CO2_net',
+            'optimization_mode_headline': 'headline_operational',
+            'optimization_mode_general': 'general_nonlinear',
+            'n_multistart_default': 16,
+            'global_screen_grid_default': 61,
+            'objective_gap_tolerance_rel_default': 0.01,
             'co2_accounting_mode_headline': 'operational_only',
             'co2_boundary_mode_headline': 'operational_only',
             'apply_neutrality_condition_default': True,
@@ -409,6 +414,10 @@ def run_full_plant_solve(
             "residual_norm": result.feasibility_report.residual_norm,
             "solve_time_seconds": result.feasibility_report.solve_time_seconds,
             "energy_closure_rel": result.energy_closure_rel,
+            "cycle_energy_closure_rel": (
+                result.cycle_result.energy_closure_rel if result.cycle_result else None
+            ),
+            "report_gate_passed": result.report_gate_passed,
             "cycle_solver_status": (
                 result.cycle_result.solver_status if result.cycle_result else "N/A"
             ),
@@ -524,6 +533,10 @@ def run_co2_reduction_analysis(
     dac_elec_intensity: float = 250.0,
     htse_elec_intensity: float = 37.5,
     htse_heat_intensity: float = 6.5,
+    optimization_mode: str = None,
+    optimization_multistart: int = 16,
+    optimization_screen_grid: int = 61,
+    objective_gap_tolerance_rel: float = 0.01,
     verbose: bool = True,
 ) -> dict:
     """
@@ -551,6 +564,11 @@ def run_co2_reduction_analysis(
     mode = co2_accounting_mode
     if co2_boundary_mode is not None and mode == "operational_only":
         mode = co2_boundary_mode
+    optimization_mode = optimization_mode or (
+        "headline_operational"
+        if not allow_grid_export
+        else "general_nonlinear"
+    )
 
     # Configure process allocation
     alloc_config = AllocationConfig(
@@ -560,6 +578,10 @@ def run_co2_reduction_analysis(
         max_grid_export_MW=10.0 if allow_grid_export else 0.0,
         co2_accounting_mode=mode,
         co2_boundary_mode=mode,
+        optimization_mode=optimization_mode,
+        n_multistart=optimization_multistart,
+        global_screen_grid=optimization_screen_grid,
+        objective_gap_tolerance_rel=objective_gap_tolerance_rel,
         enforce_htse_heat_constraint=enforce_htse_heat_constraint,
         apply_neutrality_condition=apply_neutrality_condition,
         fuel_emission_factor_kgco2_per_kg=fuel_emission_factor_kgco2_per_kg,
@@ -609,6 +631,13 @@ def run_co2_reduction_analysis(
             'baseline_or_sensitivity': baseline_or_sensitivity,
             'source_assumptions_version': source_assumptions_version,
             'conversion_checks_passed': alloc_result.co2_accounting.conversion_checks_passed,
+            'optimization_mode': optimization_mode,
+            'objective_consistency_passed': alloc_result.objective_consistency_passed,
+            'objective_gap_rel': alloc_result.objective_gap_rel,
+            'objective_gap_tolerance_rel': alloc_result.optimizer_diagnostics.get(
+                'objective_gap_tolerance_rel',
+                objective_gap_tolerance_rel,
+            ),
             'boundary_statement': (
                 'Headline operational-only boundary'
                 if mode == 'operational_only'
@@ -631,7 +660,12 @@ def run_co2_reduction_analysis(
             'Q_to_HTSE_MW': alloc_result.Q_to_HTSE / 1e6,
             'W_to_grid_MW': alloc_result.W_to_grid / 1e6,
             'Q_to_cooler_MW': alloc_result.Q_to_cooler / 1e6,
-            'optimization_converged': alloc_result.converged
+            'optimization_converged': alloc_result.converged,
+            'objective_value': alloc_result.objective_value,
+            'objective_consistency_passed': alloc_result.objective_consistency_passed,
+            'objective_best_alt': alloc_result.objective_best_alt,
+            'objective_gap_rel': alloc_result.objective_gap_rel,
+            'optimizer_diagnostics': alloc_result.optimizer_diagnostics,
         },
 
         'production_rates': {
@@ -952,8 +986,9 @@ def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
 def build_uncertainty_summary(
     baseline_plant_result,
     output_json: Path,
-    samples: int = 120,
+    samples: int = 40,
     seed: int = 20260301,
+    optimization_screen_grid: int = 13,
 ) -> Dict[str, float]:
     rng = np.random.default_rng(seed)
     fom_values = []
@@ -974,6 +1009,10 @@ def build_uncertainty_summary(
             dac_elec_intensity=dac_elec,
             htse_elec_intensity=htse_elec,
             htse_heat_intensity=htse_heat,
+            optimization_mode="headline_operational",
+            optimization_multistart=4,
+            optimization_screen_grid=optimization_screen_grid,
+            objective_gap_tolerance_rel=0.02,
             verbose=False,
         )
         fom_values.append(out["figures_of_merit"]["CO2_reduction_t_per_MWth_per_yr"])
@@ -1158,15 +1197,132 @@ def build_constraint_margin_table(
     )
 
 
-def report_gate_check(scenario_results: Dict[str, Dict]) -> None:
+def report_gate_check(
+    scenario_results: Dict[str, Dict],
+    baseline_plant_result,
+    output_root: Path,
+) -> Dict[str, object]:
+    """Strict interim gate checks that must pass before canonical export is accepted."""
     required_meta = {"scenario_id", "baseline_or_sensitivity", "source_assumptions_version"}
+    required_boundary_meta = {
+        "co2_accounting_mode",
+        "co2_boundary_mode",
+        "optimization_mode",
+    }
+    required_scenario_metadata = {
+        "scenario_id",
+        "baseline_or_sensitivity",
+        "source_assumptions_version",
+        "co2_accounting_mode",
+        "co2_boundary_mode",
+    }
+
+    failures = []
+    gate_results: Dict[str, Dict[str, object]] = {}
+
+    # Gate 1: metadata completeness for all scenarios.
+    metadata_ok = True
     for scenario_id, payload in scenario_results.items():
         plant_meta = payload["plant"]["metadata"]
         co2_meta = payload["co2"]["metadata"]
+        scenario_meta = payload["co2"]["scenario_metadata"]
         if not required_meta.issubset(set(plant_meta.keys())):
-            raise RuntimeError(f"Scenario {scenario_id} missing required plant metadata tags")
+            metadata_ok = False
+            failures.append(f"{scenario_id}: missing required plant metadata tags")
         if not required_meta.issubset(set(co2_meta.keys())):
-            raise RuntimeError(f"Scenario {scenario_id} missing required CO2 metadata tags")
+            metadata_ok = False
+            failures.append(f"{scenario_id}: missing required CO2 metadata tags")
+        if not required_boundary_meta.issubset(set(co2_meta.keys())):
+            metadata_ok = False
+            failures.append(f"{scenario_id}: missing required boundary metadata tags")
+        if not required_scenario_metadata.issubset(set(scenario_meta.keys())):
+            metadata_ok = False
+            failures.append(f"{scenario_id}: missing required scenario metadata tags")
+    gate_results["metadata_completeness"] = {
+        "passed": metadata_ok,
+        "required_meta": sorted(required_meta),
+        "required_boundary_meta": sorted(required_boundary_meta),
+        "required_scenario_metadata": sorted(required_scenario_metadata),
+    }
+
+    # Headline scenario gate checks.
+    s0 = scenario_results["S0_BASE_30MW_OPONLY"]
+    s0_status = s0["plant"]["status"]
+    s0_alloc = s0["co2"]["allocation"]
+
+    plant_energy_ok = (
+        bool(s0_status["converged"])
+        and bool(s0_status["feasible"])
+        and float(s0_status["energy_closure_rel"]) <= 0.005
+    )
+    gate_results["headline_plant_energy"] = {
+        "passed": plant_energy_ok,
+        "converged": s0_status["converged"],
+        "feasible": s0_status["feasible"],
+        "energy_closure_rel": s0_status["energy_closure_rel"],
+        "threshold": 0.005,
+    }
+    if not plant_energy_ok:
+        failures.append("S0 headline plant closure/convergence gate failed")
+
+    cycle_energy_rel = s0_status.get("cycle_energy_closure_rel")
+    cycle_energy_ok = cycle_energy_rel is not None and float(cycle_energy_rel) <= 0.005
+    gate_results["headline_cycle_energy"] = {
+        "passed": cycle_energy_ok,
+        "cycle_energy_closure_rel": cycle_energy_rel,
+        "threshold": 0.005,
+    }
+    if not cycle_energy_ok:
+        failures.append("S0 headline cycle energy-closure gate failed")
+
+    objective_gap = float(s0_alloc.get("objective_gap_rel", 1.0))
+    objective_consistency_ok = bool(s0_alloc.get("objective_consistency_passed", False)) and objective_gap <= 0.01
+    gate_results["headline_objective_consistency"] = {
+        "passed": objective_consistency_ok,
+        "objective_consistency_passed": s0_alloc.get("objective_consistency_passed"),
+        "objective_gap_rel": objective_gap,
+        "threshold": 0.01,
+        "objective_best_alt": s0_alloc.get("objective_best_alt"),
+        "objective_value": s0_alloc.get("objective_value"),
+    }
+    if not objective_consistency_ok:
+        failures.append("S0 headline objective-consistency gate failed")
+
+    # UQ reproducibility gate (fixed seed -> identical summary).
+    uq_a = build_uncertainty_summary(
+        baseline_plant_result,
+        output_root / "uncertainty_repro_a.json",
+        samples=12,
+        seed=20260301,
+        optimization_screen_grid=11,
+    )
+    uq_b = build_uncertainty_summary(
+        baseline_plant_result,
+        output_root / "uncertainty_repro_b.json",
+        samples=12,
+        seed=20260301,
+        optimization_screen_grid=11,
+    )
+    reproducible = all(
+        float(uq_a[k]) == float(uq_b[k])
+        for k in ["mean", "std", "p10", "p50", "p90", "ci95_low", "ci95_high"]
+    )
+    gate_results["uq_reproducibility"] = {
+        "passed": reproducible,
+        "seed": 20260301,
+        "samples": 12,
+    }
+    if not reproducible:
+        failures.append("UQ reproducibility gate failed for fixed seed")
+
+    gate_results["overall"] = {"passed": len(failures) == 0, "failures": failures}
+    with open(output_root / "audit_gate_results.json", "w") as f:
+        json.dump(gate_results, f, indent=2)
+
+    if failures:
+        raise RuntimeError("Strict interim gate(s) failed: " + "; ".join(failures))
+
+    return gate_results
 
 
 def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
@@ -1175,7 +1331,6 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
     output_root.mkdir(parents=True, exist_ok=True)
 
     scenario_results = run_stage2_scenarios(output_root)
-    report_gate_check(scenario_results)
 
     # Use S0 plant state as baseline for uncertainty around process intensities.
     _, baseline_plant_result = run_full_plant_solve(
@@ -1191,6 +1346,11 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
     uncertainty = build_uncertainty_summary(
         baseline_plant_result,
         output_root / "uncertainty_summary.json",
+    )
+    gate_results = report_gate_check(
+        scenario_results=scenario_results,
+        baseline_plant_result=baseline_plant_result,
+        output_root=output_root,
     )
 
     fom_rows = []
@@ -1246,6 +1406,8 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
                 "generated_at": datetime.now().isoformat(),
                 "headline_scenario": "S0_BASE_30MW_OPONLY",
                 "scenarios": sorted(scenario_results.keys()),
+                "strict_interim_gates_passed": gate_results["overall"]["passed"],
+                "strict_interim_gate_failures": gate_results["overall"]["failures"],
                 "output_root": str(output_root),
             },
             f,

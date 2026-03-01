@@ -328,6 +328,10 @@ class AllocationConfig:
     apply_neutrality_condition: bool = True
     fuel_emission_factor_kgco2_per_kg: float = 3.15  # Reference fossil fuel EF
     displacement_factor: float = 1.0
+    optimization_mode: str = "headline_operational"  # headline_operational | general_nonlinear
+    n_multistart: int = 12
+    global_screen_grid: int = 41
+    objective_gap_tolerance_rel: float = 0.01
 
     # Process configurations
     dac_config: DACConfig = field(default_factory=DACConfig)
@@ -426,6 +430,10 @@ class AllocationResult:
 
     # Optimization info
     objective_value: float
+    objective_consistency_passed: bool
+    objective_best_alt: float
+    objective_gap_rel: float
+    optimizer_diagnostics: Dict[str, float]
     iterations: int
     message: str
     scenario_metadata: Dict[str, object] = field(default_factory=dict)
@@ -468,6 +476,14 @@ class ProcessAllocator:
             raise ValueError("fuel_emission_factor_kgco2_per_kg must be non-negative")
         if self.config.displacement_factor < 0:
             raise ValueError("displacement_factor must be non-negative")
+        if self.config.optimization_mode not in {"headline_operational", "general_nonlinear"}:
+            raise ValueError(
+                "optimization_mode must be 'headline_operational' or 'general_nonlinear'"
+            )
+        if self.config.n_multistart < 1:
+            raise ValueError("n_multistart must be >= 1")
+        if self.config.global_screen_grid < 5:
+            raise ValueError("global_screen_grid must be >= 5")
 
         self._conversion_checks_passed = conversion_checks_pass(self.config.grid_CO2_intensity)
 
@@ -496,6 +512,320 @@ class ProcessAllocator:
             net -= co2_reemitted_synthetic_kg_s
         return net
 
+    def _evaluate_candidate(
+        self,
+        W_HTSE: float,
+        W_DAC: float,
+        Q_DAC: float,
+        W_grid: float,
+        W_allocatable: float,
+        Q_waste_available: float,
+        T_waste: float,
+        dac_feasible: bool,
+    ) -> Dict[str, object]:
+        """Evaluate a single allocation candidate and return objective + diagnostics."""
+        cfg = self.config
+        W_HTSE = max(float(W_HTSE), 0.0)
+        W_DAC = max(float(W_DAC), 0.0)
+        Q_DAC = max(float(Q_DAC), 0.0)
+        W_grid = max(float(W_grid), 0.0)
+
+        Q_to_HTSE = self._htse_heat_required(W_HTSE) if cfg.enforce_htse_heat_constraint else 0.0
+        elec_margin = W_allocatable - W_HTSE - W_DAC - W_grid
+        heat_margin = Q_waste_available - Q_DAC - Q_to_HTSE
+
+        htse_out = self.htse.calculate(
+            W_HTSE,
+            Q_steam=Q_to_HTSE if cfg.enforce_htse_heat_constraint else None,
+        )
+        dac_out = self.dac.calculate(Q_DAC, W_DAC, T_waste)
+        m_H2 = htse_out["m_H2_produced_kg_s"]
+        m_CO2_dac = dac_out["m_CO2_captured_kg_s"] if dac_out["feasible"] else 0.0
+        meoh_out = self.methanol.calculate(m_H2, m_CO2_dac)
+        m_MeOH = meoh_out["m_MeOH_produced_kg_s"]
+
+        CO2_grid_kg_s = W_grid * cfg.grid_CO2_intensity / (3.6e6 * 1000.0)
+        CO2_embodied_kg_s = m_MeOH * cfg.embodied_CO2_per_kg_MeOH
+        CO2_displaced_fossil_kg_s = (
+            m_MeOH * cfg.fuel_emission_factor_kgco2_per_kg * cfg.displacement_factor
+        )
+        CO2_reemitted_synthetic_kg_s = meoh_out["m_CO2_consumed_kg_s"]
+        CO2_net_kg_s = self._net_co2_reduction(
+            co2_dac_kg_s=m_CO2_dac,
+            co2_grid_kg_s=CO2_grid_kg_s,
+            co2_embodied_kg_s=CO2_embodied_kg_s,
+            co2_displaced_fossil_kg_s=CO2_displaced_fossil_kg_s,
+            co2_reemitted_synthetic_kg_s=CO2_reemitted_synthetic_kg_s,
+        )
+
+        if cfg.objective == AllocationObjective.MAX_CO2_NET:
+            objective_value = CO2_net_kg_s
+        elif cfg.objective == AllocationObjective.MAX_HYDROGEN:
+            objective_value = m_H2
+        elif cfg.objective == AllocationObjective.MAX_METHANOL:
+            objective_value = m_MeOH
+        else:
+            objective_value = CO2_net_kg_s
+
+        constraint_feasible = (
+            elec_margin >= -1e-6
+            and heat_margin >= -1e-6
+            and (dac_out["feasible"] or not dac_feasible or Q_DAC <= 1e-6)
+        )
+
+        return {
+            "W_HTSE": W_HTSE,
+            "W_DAC": W_DAC,
+            "Q_DAC": Q_DAC,
+            "W_grid": W_grid,
+            "Q_to_HTSE": Q_to_HTSE,
+            "Q_to_cooler": max(Q_waste_available - Q_DAC - Q_to_HTSE, 0.0),
+            "elec_margin": elec_margin,
+            "heat_margin": heat_margin,
+            "constraint_feasible": constraint_feasible,
+            "objective_value": float(objective_value),
+            "htse_out": htse_out,
+            "dac_out": dac_out,
+            "meoh_out": meoh_out,
+            "m_H2": m_H2,
+            "m_CO2_dac": m_CO2_dac,
+            "m_MeOH": m_MeOH,
+            "CO2_grid_kg_s": CO2_grid_kg_s,
+            "CO2_embodied_kg_s": CO2_embodied_kg_s,
+            "CO2_displaced_fossil_kg_s": CO2_displaced_fossil_kg_s,
+            "CO2_reemitted_synthetic_kg_s": CO2_reemitted_synthetic_kg_s,
+            "CO2_net_kg_s": CO2_net_kg_s,
+        }
+
+    def _coarse_global_screen(
+        self,
+        W_allocatable: float,
+        Q_waste_available: float,
+        T_waste: float,
+        dac_feasible: bool,
+        grid_points: Optional[int] = None,
+    ) -> Dict[str, object]:
+        """Deterministic coarse screen to identify robust high-quality candidates."""
+        cfg = self.config
+        n = int(grid_points or cfg.global_screen_grid)
+        n = max(n, 5)
+        W_grid_max = cfg.max_grid_export_MW * 1e6 if cfg.allow_grid_export else 0.0
+
+        W_HTSE_vals = np.linspace(0.0, W_allocatable, n)
+        if W_grid_max > 0:
+            W_grid_vals = np.linspace(0.0, W_grid_max, n)
+        else:
+            W_grid_vals = np.array([0.0])
+
+        best = None
+        best_obj = -np.inf
+        evaluations = 0
+
+        for W_HTSE in W_HTSE_vals:
+            Q_to_HTSE = self._htse_heat_required(W_HTSE) if cfg.enforce_htse_heat_constraint else 0.0
+            Q_DAC_max = max(Q_waste_available - Q_to_HTSE, 0.0)
+            for W_grid in W_grid_vals:
+                if W_HTSE + W_grid > W_allocatable + 1e-9:
+                    continue
+                W_DAC = max(W_allocatable - W_HTSE - W_grid, 0.0)
+                cand = self._evaluate_candidate(
+                    W_HTSE=W_HTSE,
+                    W_DAC=W_DAC,
+                    Q_DAC=Q_DAC_max,
+                    W_grid=W_grid,
+                    W_allocatable=W_allocatable,
+                    Q_waste_available=Q_waste_available,
+                    T_waste=T_waste,
+                    dac_feasible=dac_feasible,
+                )
+                evaluations += 1
+                if not cand["constraint_feasible"]:
+                    continue
+                if cand["objective_value"] > best_obj:
+                    best_obj = cand["objective_value"]
+                    best = cand
+
+        return {
+            "best_candidate": best,
+            "best_objective": float(best_obj) if np.isfinite(best_obj) else float("-inf"),
+            "evaluations": evaluations,
+        }
+
+    def _solve_headline_operational(
+        self,
+        W_allocatable: float,
+        Q_waste_available: float,
+        T_waste: float,
+        dac_feasible: bool,
+    ) -> Tuple[List[float], bool, int, str, Dict[str, float]]:
+        """Deterministic solver for headline operational mode."""
+        screen = self._coarse_global_screen(
+            W_allocatable=W_allocatable,
+            Q_waste_available=Q_waste_available,
+            T_waste=T_waste,
+            dac_feasible=dac_feasible,
+            grid_points=max(self.config.global_screen_grid, 61),
+        )
+        best = screen["best_candidate"]
+        if best is None:
+            return [0.0, 0.0, 0.0, 0.0], False, screen["evaluations"], "No feasible deterministic headline solution", {
+                "method": 1.0,
+                "screen_evaluations": float(screen["evaluations"]),
+            }
+        return (
+            [best["W_HTSE"], best["W_DAC"], best["Q_DAC"], best["W_grid"]],
+            True,
+            screen["evaluations"],
+            "Deterministic headline solver",
+            {
+                "method": 1.0,
+                "screen_evaluations": float(screen["evaluations"]),
+                "screen_best_objective": float(screen["best_objective"]),
+            },
+        )
+
+    def _solve_general_nonlinear(
+        self,
+        W_allocatable: float,
+        Q_waste_available: float,
+        T_waste: float,
+        dac_feasible: bool,
+    ) -> Tuple[List[float], bool, int, str, Dict[str, float]]:
+        """Multi-start SLSQP solve with deterministic screen seeding."""
+        cfg = self.config
+        W_grid_max = cfg.max_grid_export_MW * 1e6 if cfg.allow_grid_export else 0.0
+        q_dac_max = Q_waste_available if dac_feasible else 0.0
+        bounds = Bounds(
+            lb=[0.0, 0.0, 0.0, 0.0],
+            ub=[W_allocatable, W_allocatable, q_dac_max, W_grid_max],
+        )
+
+        def elec_constraint(x):
+            return W_allocatable - x[0] - x[1] - x[3]
+
+        def heat_constraint(x):
+            q_htse = self._htse_heat_required(x[0]) if cfg.enforce_htse_heat_constraint else 0.0
+            return Q_waste_available - x[2] - q_htse
+
+        constraints = [
+            {"type": "ineq", "fun": elec_constraint},
+            {"type": "ineq", "fun": heat_constraint},
+        ]
+
+        def objective(x):
+            cand = self._evaluate_candidate(
+                W_HTSE=x[0],
+                W_DAC=x[1],
+                Q_DAC=x[2],
+                W_grid=x[3],
+                W_allocatable=W_allocatable,
+                Q_waste_available=Q_waste_available,
+                T_waste=T_waste,
+                dac_feasible=dac_feasible,
+            )
+            if not cand["constraint_feasible"]:
+                penalty = max(-cand["elec_margin"], 0.0) + max(-cand["heat_margin"], 0.0)
+                return 1e6 + 1e3 * penalty
+            return -cand["objective_value"]
+
+        screen = self._coarse_global_screen(
+            W_allocatable=W_allocatable,
+            Q_waste_available=Q_waste_available,
+            T_waste=T_waste,
+            dac_feasible=dac_feasible,
+            grid_points=cfg.global_screen_grid,
+        )
+        seeds: List[List[float]] = []
+        if screen["best_candidate"] is not None:
+            b = screen["best_candidate"]
+            seeds.append([b["W_HTSE"], b["W_DAC"], b["Q_DAC"], b["W_grid"]])
+
+        if dac_feasible and Q_waste_available > 0:
+            x0 = [0.3 * W_allocatable, 0.2 * W_allocatable, 0.5 * Q_waste_available, 0.0]
+        else:
+            x0 = [0.8 * W_allocatable, 0.0, 0.0, 0.0]
+        if cfg.enforce_htse_heat_constraint:
+            q_htse_guess = self._htse_heat_required(x0[0])
+            x0[2] = min(x0[2], max(Q_waste_available - q_htse_guess, 0.0))
+        seeds.append(x0)
+
+        rng = np.random.default_rng(20260301)
+        for _ in range(cfg.n_multistart):
+            W_HTSE = float(rng.uniform(0.0, W_allocatable))
+            W_grid = float(rng.uniform(0.0, W_grid_max)) if W_grid_max > 0 else 0.0
+            if W_HTSE + W_grid > W_allocatable:
+                scale = W_allocatable / max(W_HTSE + W_grid, 1.0)
+                W_HTSE *= scale
+                W_grid *= scale
+            W_DAC = max(W_allocatable - W_HTSE - W_grid, 0.0)
+            Q_to_HTSE = self._htse_heat_required(W_HTSE) if cfg.enforce_htse_heat_constraint else 0.0
+            Q_DAC_max = max(Q_waste_available - Q_to_HTSE, 0.0)
+            Q_DAC = float(rng.uniform(0.0, Q_DAC_max)) if Q_DAC_max > 0 else 0.0
+            seeds.append([W_HTSE, W_DAC, Q_DAC, W_grid])
+
+        best_x = None
+        best_obj = -np.inf
+        best_success = False
+        total_iters = 0
+        n_success = 0
+
+        for seed in seeds:
+            res = minimize(
+                objective,
+                seed,
+                method="SLSQP",
+                bounds=bounds,
+                constraints=constraints,
+                options={"maxiter": 200, "ftol": 1e-10},
+            )
+            total_iters += int(getattr(res, "nit", 0))
+            x_eval = res.x if hasattr(res, "x") else np.array(seed, dtype=float)
+            cand = self._evaluate_candidate(
+                W_HTSE=x_eval[0],
+                W_DAC=x_eval[1],
+                Q_DAC=x_eval[2],
+                W_grid=x_eval[3],
+                W_allocatable=W_allocatable,
+                Q_waste_available=Q_waste_available,
+                T_waste=T_waste,
+                dac_feasible=dac_feasible,
+            )
+            if res.success and cand["constraint_feasible"]:
+                n_success += 1
+                if cand["objective_value"] > best_obj:
+                    best_obj = cand["objective_value"]
+                    best_x = [cand["W_HTSE"], cand["W_DAC"], cand["Q_DAC"], cand["W_grid"]]
+                    best_success = True
+
+        if best_x is None and screen["best_candidate"] is not None:
+            b = screen["best_candidate"]
+            best_x = [b["W_HTSE"], b["W_DAC"], b["Q_DAC"], b["W_grid"]]
+            best_obj = b["objective_value"]
+            best_success = True
+
+        if best_x is None:
+            return [0.0, 0.0, 0.0, 0.0], False, total_iters, "No feasible nonlinear solution", {
+                "method": 2.0,
+                "screen_evaluations": float(screen["evaluations"]),
+                "n_multistart": float(cfg.n_multistart),
+                "n_successful_solves": float(n_success),
+                "best_objective": float("-inf"),
+            }
+
+        return (
+            best_x,
+            best_success,
+            total_iters,
+            "Multi-start nonlinear solver",
+            {
+                "method": 2.0,
+                "screen_evaluations": float(screen["evaluations"]),
+                "n_multistart": float(cfg.n_multistart),
+                "n_successful_solves": float(n_success),
+                "best_objective": float(best_obj),
+            },
+        )
+
     def allocate(self,
                  W_net_available: float,
                  Q_waste_available: float,
@@ -522,158 +852,82 @@ class ProcessAllocator:
 
         # Check if DAC is thermally feasible
         dac_feasible = T_waste >= cfg.dac_config.T_regen_min
-
-        # Decision variables: [W_HTSE, W_DAC, Q_DAC, W_grid]
-        # Bounds
-        W_grid_max = cfg.max_grid_export_MW * 1e6 if cfg.allow_grid_export else 0
-
-        if dac_feasible:
-            bounds = Bounds(
-                lb=[0, 0, 0, 0],
-                ub=[W_allocatable, W_allocatable, Q_waste_available, W_grid_max]
+        if (
+            cfg.optimization_mode == "headline_operational"
+            and cfg.objective == AllocationObjective.MAX_CO2_NET
+        ):
+            x_opt, converged, iterations, message, optimizer_diag = self._solve_headline_operational(
+                W_allocatable=W_allocatable,
+                Q_waste_available=Q_waste_available,
+                T_waste=T_waste,
+                dac_feasible=dac_feasible,
             )
         else:
-            # Force Q_DAC = 0 if temperature insufficient
-            bounds = Bounds(
-                lb=[0, 0, 0, 0],
-                ub=[W_allocatable, W_allocatable, 0, W_grid_max]
+            x_opt, converged, iterations, message, optimizer_diag = self._solve_general_nonlinear(
+                W_allocatable=W_allocatable,
+                Q_waste_available=Q_waste_available,
+                T_waste=T_waste,
+                dac_feasible=dac_feasible,
             )
 
-        # Initial guess: prioritize DAC if feasible, else HTSE
-        if dac_feasible and Q_waste_available > 0:
-            x0 = [0.3 * W_allocatable, 0.2 * W_allocatable, 0.5 * Q_waste_available, 0.0]
-        else:
-            x0 = [0.8 * W_allocatable, 0.0, 0.0, 0.0]
-
-        # Ensure initial guess respects optional HTSE heat constraint.
-        if cfg.enforce_htse_heat_constraint:
-            q_htse_guess = self._htse_heat_required(x0[0])
-            x0[2] = min(x0[2], max(Q_waste_available - q_htse_guess, 0.0))
-
-        def objective(x):
-            W_HTSE, W_DAC, Q_DAC, W_grid = x
-
-            # Calculate process outputs
-            Q_htse_req = self._htse_heat_required(W_HTSE)
-            htse_out = self.htse.calculate(
-                W_HTSE,
-                Q_steam=Q_htse_req if cfg.enforce_htse_heat_constraint else None,
-            )
-            dac_out = self.dac.calculate(Q_DAC, W_DAC, T_waste)
-
-            m_H2 = htse_out['m_H2_produced_kg_s']
-            m_CO2_dac = dac_out['m_CO2_captured_kg_s'] if dac_out['feasible'] else 0
-
-            # Methanol production (uses H2 and captured CO2)
-            meoh_out = self.methanol.calculate(m_H2, m_CO2_dac)
-            m_MeOH = meoh_out['m_MeOH_produced_kg_s']
-
-            # CO2 avoided from grid displacement (convert W to kg/s)
-            # grid_CO2_intensity is g/kWh = g/(3.6e6 J)
-            CO2_grid = W_grid * cfg.grid_CO2_intensity / (3.6e6 * 1000)  # kg/s
-
-            # Embodied CO2 in methanol
-            CO2_embodied = m_MeOH * cfg.embodied_CO2_per_kg_MeOH
-            CO2_displaced_fossil = m_MeOH * cfg.fuel_emission_factor_kgco2_per_kg * cfg.displacement_factor
-            CO2_reemitted_synthetic = meoh_out['m_CO2_consumed_kg_s']
-
-            # Net CO2 reduction with selected accounting boundary
-            CO2_net = self._net_co2_reduction(
-                co2_dac_kg_s=m_CO2_dac,
-                co2_grid_kg_s=CO2_grid,
-                co2_embodied_kg_s=CO2_embodied,
-                co2_displaced_fossil_kg_s=CO2_displaced_fossil,
-                co2_reemitted_synthetic_kg_s=CO2_reemitted_synthetic,
-            )
-
-            if cfg.objective == AllocationObjective.MAX_CO2_NET:
-                return -CO2_net  # Negative for minimization
-            elif cfg.objective == AllocationObjective.MAX_HYDROGEN:
-                return -m_H2
-            elif cfg.objective == AllocationObjective.MAX_METHANOL:
-                return -m_MeOH
-            else:
-                return -CO2_net
-
-        def elec_constraint(x):
-            """Electricity balance: sum of allocations <= available"""
-            W_HTSE, W_DAC, Q_DAC, W_grid = x
-            return W_allocatable - W_HTSE - W_DAC - W_grid
-
-        def heat_constraint(x):
-            """Heat balance: include HTSE steam demand if enabled."""
-            W_HTSE, W_DAC, Q_DAC, W_grid = x
-            Q_htse = self._htse_heat_required(W_HTSE) if cfg.enforce_htse_heat_constraint else 0.0
-            return Q_waste_available - Q_DAC - Q_htse
-
-        constraints = [
-            {'type': 'ineq', 'fun': elec_constraint},
-            {'type': 'ineq', 'fun': heat_constraint},
-        ]
-
-        # Optimize
-        result = minimize(
-            objective,
-            x0,
-            method='SLSQP',
-            bounds=bounds,
-            constraints=constraints,
-            options={'maxiter': 100, 'ftol': 1e-9}
+        cand = self._evaluate_candidate(
+            W_HTSE=x_opt[0],
+            W_DAC=x_opt[1],
+            Q_DAC=x_opt[2],
+            W_grid=x_opt[3],
+            W_allocatable=W_allocatable,
+            Q_waste_available=Q_waste_available,
+            T_waste=T_waste,
+            dac_feasible=dac_feasible,
         )
 
-        if not result.success:
-            # Use initial guess as fallback
-            x_opt = x0
+        screen_check = self._coarse_global_screen(
+            W_allocatable=W_allocatable,
+            Q_waste_available=Q_waste_available,
+            T_waste=T_waste,
+            dac_feasible=dac_feasible,
+            grid_points=cfg.global_screen_grid,
+        )
+        objective_best_alt = screen_check["best_objective"]
+        if np.isfinite(objective_best_alt):
+            objective_gap_rel = max(
+                0.0,
+                (objective_best_alt - cand["objective_value"]) / max(abs(objective_best_alt), 1.0),
+            )
+        else:
+            objective_gap_rel = 0.0
+        objective_consistency_passed = objective_gap_rel <= cfg.objective_gap_tolerance_rel
+
+        if not objective_consistency_passed:
             converged = False
-        else:
-            x_opt = result.x
-            converged = True
-
-        W_HTSE, W_DAC, Q_DAC, W_grid = x_opt
-
-        # Calculate final outputs
-        Q_to_HTSE = self._htse_heat_required(W_HTSE) if cfg.enforce_htse_heat_constraint else 0.0
-        htse_out = self.htse.calculate(
-            W_HTSE,
-            Q_steam=Q_to_HTSE if cfg.enforce_htse_heat_constraint else None,
-        )
-        dac_out = self.dac.calculate(Q_DAC, W_DAC, T_waste)
-
-        m_H2 = htse_out['m_H2_produced_kg_s']
-        m_CO2_dac = dac_out['m_CO2_captured_kg_s'] if dac_out['feasible'] else 0
-
-        meoh_out = self.methanol.calculate(m_H2, m_CO2_dac)
+            message = (
+                f"{message}; objective consistency failed "
+                f"(gap={objective_gap_rel:.4f} > tol={cfg.objective_gap_tolerance_rel:.4f})"
+            )
 
         # Build CO2 accounting
         seconds_per_year = 365.25 * 24 * 3600
         capacity_factor = 0.90
 
-        CO2_grid_kg_s = W_grid * cfg.grid_CO2_intensity / (3.6e6 * 1000)
-        CO2_embodied_kg_s = meoh_out['m_MeOH_produced_kg_s'] * cfg.embodied_CO2_per_kg_MeOH
-        CO2_displaced_fossil_kg_s = (
-            meoh_out['m_MeOH_produced_kg_s']
-            * cfg.fuel_emission_factor_kgco2_per_kg
-            * cfg.displacement_factor
-        )
-        CO2_reemitted_synthetic_kg_s = meoh_out['m_CO2_consumed_kg_s']
-        CO2_net_kg_s = self._net_co2_reduction(
-            co2_dac_kg_s=m_CO2_dac,
-            co2_grid_kg_s=CO2_grid_kg_s,
-            co2_embodied_kg_s=CO2_embodied_kg_s,
-            co2_displaced_fossil_kg_s=CO2_displaced_fossil_kg_s,
-            co2_reemitted_synthetic_kg_s=CO2_reemitted_synthetic_kg_s,
-        )
-
-        # Calculate remaining heat to cooler
-        Q_to_cooler = max(Q_waste_available - Q_DAC - Q_to_HTSE, 0.0)
-
-        elec_margin = W_allocatable - W_HTSE - W_DAC - W_grid
-        heat_margin = Q_waste_available - Q_DAC - Q_to_HTSE
-        allocation_feasible = (
-            (dac_out['feasible'] or not dac_feasible)
-            and elec_margin >= -1e-3
-            and heat_margin >= -1e-3
-        )
+        allocation_feasible = bool(cand["constraint_feasible"] and objective_consistency_passed)
+        elec_margin = cand["elec_margin"]
+        heat_margin = cand["heat_margin"]
+        W_HTSE = cand["W_HTSE"]
+        W_DAC = cand["W_DAC"]
+        Q_DAC = cand["Q_DAC"]
+        W_grid = cand["W_grid"]
+        Q_to_HTSE = cand["Q_to_HTSE"]
+        Q_to_cooler = cand["Q_to_cooler"]
+        htse_out = cand["htse_out"]
+        dac_out = cand["dac_out"]
+        meoh_out = cand["meoh_out"]
+        m_H2 = cand["m_H2"]
+        m_CO2_dac = cand["m_CO2_dac"]
+        CO2_grid_kg_s = cand["CO2_grid_kg_s"]
+        CO2_embodied_kg_s = cand["CO2_embodied_kg_s"]
+        CO2_displaced_fossil_kg_s = cand["CO2_displaced_fossil_kg_s"]
+        CO2_reemitted_synthetic_kg_s = cand["CO2_reemitted_synthetic_kg_s"]
+        CO2_net_kg_s = cand["CO2_net_kg_s"]
 
         co2_accounting = CO2AccountingResult(
             W_to_grid=W_grid,
@@ -728,9 +982,22 @@ class ProcessAllocator:
             htse_result=htse_out,
             methanol_result=meoh_out,
             co2_accounting=co2_accounting,
-            objective_value=-result.fun if result.success else 0,
-            iterations=result.nit if hasattr(result, 'nit') else 0,
-            message=result.message if hasattr(result, 'message') else "Fallback solution",
+            objective_value=cand["objective_value"],
+            objective_consistency_passed=objective_consistency_passed,
+            objective_best_alt=objective_best_alt if np.isfinite(objective_best_alt) else cand["objective_value"],
+            objective_gap_rel=objective_gap_rel,
+            optimizer_diagnostics={
+                **optimizer_diag,
+                "objective_screen_evaluations": float(screen_check["evaluations"]),
+                "objective_current": float(cand["objective_value"]),
+                "objective_best_alt": (
+                    float(objective_best_alt) if np.isfinite(objective_best_alt) else float(cand["objective_value"])
+                ),
+                "objective_gap_rel": float(objective_gap_rel),
+                "objective_gap_tolerance_rel": float(cfg.objective_gap_tolerance_rel),
+            },
+            iterations=iterations,
+            message=message,
             scenario_metadata={
                 "scenario_name": cfg.scenario_name,
                 "scenario_id": cfg.scenario_id,
@@ -747,6 +1014,10 @@ class ProcessAllocator:
                 "conversion_checks_passed": self._conversion_checks_passed,
                 "heat_margin_W": heat_margin,
                 "elec_margin_W": elec_margin,
+                "optimization_mode": cfg.optimization_mode,
+                "objective_consistency_passed": objective_consistency_passed,
+                "objective_gap_rel": objective_gap_rel,
+                "objective_gap_tolerance_rel": cfg.objective_gap_tolerance_rel,
             },
         )
 
@@ -774,7 +1045,13 @@ class ProcessAllocator:
             Q_to_cooler=0, Q_to_HTSE=0,
             dac_result={}, htse_result={}, methanol_result=None,
             co2_accounting=empty_co2,
-            objective_value=0, iterations=0, message=message,
+            objective_value=0,
+            objective_consistency_passed=False,
+            objective_best_alt=0,
+            objective_gap_rel=1.0,
+            optimizer_diagnostics={"error": 1.0},
+            iterations=0,
+            message=message,
             scenario_metadata={
                 "scenario_name": self.config.scenario_name,
                 "scenario_id": self.config.scenario_id,
@@ -789,6 +1066,10 @@ class ProcessAllocator:
                 "fuel_emission_factor_kgco2_per_kg": self.config.fuel_emission_factor_kgco2_per_kg,
                 "displacement_factor": self.config.displacement_factor,
                 "conversion_checks_passed": self._conversion_checks_passed,
+                "optimization_mode": self.config.optimization_mode,
+                "objective_consistency_passed": False,
+                "objective_gap_rel": 1.0,
+                "objective_gap_tolerance_rel": self.config.objective_gap_tolerance_rel,
             },
         )
 
@@ -856,6 +1137,10 @@ def calculate_plant_co2_reduction(
             'Q_HTSE_MW': result.Q_to_HTSE / 1e6,
             'W_grid_MW': result.W_to_grid / 1e6,
             'Q_cooler_MW': result.Q_to_cooler / 1e6,
+            'objective_value': result.objective_value,
+            'objective_consistency_passed': result.objective_consistency_passed,
+            'objective_best_alt': result.objective_best_alt,
+            'objective_gap_rel': result.objective_gap_rel,
         },
 
         'production': {
