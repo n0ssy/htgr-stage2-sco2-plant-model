@@ -41,15 +41,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from validation.dostal_validation import run_dostal_validation
 from cycle.coupled_solver import CoupledPlantSolver, PlantConfig
-from cycle.sco2_cycle import CycleConfig
+from cycle.sco2_cycle import CycleConfig, SCO2RecompressionCycle
 from components.ihx import IHXConfig
 from components.dry_cooler import DryCoolerConfig, DryCoolerGeometry
 from properties.fluids import CO2_T_CRIT, CO2_P_CRIT
 from process.allocation import (
     ProcessAllocator, AllocationConfig, AllocationObjective,
     DACConfig, HTSEConfig, MethanolConfig,
+    DACModel, HTSEModel, MethanolModel,
     calculate_plant_co2_reduction
 )
+
+
+HEADLINE_SCENARIO_ID = "S2_30MW_FUELDISP"
+SOURCE_ASSUMPTIONS_VERSION = "v3_fuel_factory_headline"
 
 
 def get_assumptions() -> dict:
@@ -236,8 +241,13 @@ def get_assumptions() -> dict:
             'n_multistart_default': 16,
             'global_screen_grid_default': 61,
             'objective_gap_tolerance_rel_default': 0.01,
-            'co2_accounting_mode_headline': 'operational_only',
-            'co2_boundary_mode_headline': 'operational_only',
+            'co2_accounting_mode_headline': 'fuel_displacement',
+            'co2_boundary_mode_headline': 'fuel_displacement',
+            'headline_scenario_id': HEADLINE_SCENARIO_ID,
+            'concept_mode_headline': 'fuel_factory',
+            'enforce_min_meoh_output_headline': True,
+            'min_meoh_t_yr_30MW_headline': 8833.0,
+            'min_meoh_t_yr_36MW_sensitivity': 10600.0,
             'apply_neutrality_condition_default': True,
             'fuel_emission_factor_kgco2_per_kg_default': 3.15,
             'displacement_factor_default': 1.0,
@@ -255,7 +265,7 @@ def run_full_plant_solve(
     Q_thermal_MW: float = 30.0,
     scenario_id: str = "S0_BASE_30MW_OPONLY",
     baseline_or_sensitivity: str = "baseline",
-    source_assumptions_version: str = "v2",
+    source_assumptions_version: str = SOURCE_ASSUMPTIONS_VERSION,
     cooling_aux_fraction: float = 0.01,
     verbose: bool = True,
 ) -> dict:
@@ -522,10 +532,10 @@ def run_co2_reduction_analysis(
     allow_grid_export: bool = False,
     grid_CO2_intensity: float = 400.0,
     enforce_htse_heat_constraint: bool = True,
-    scenario_name: str = "headline_htgr_only",
-    scenario_id: str = "S0_BASE_30MW_OPONLY",
+    scenario_name: str = "headline_fuel_factory",
+    scenario_id: str = HEADLINE_SCENARIO_ID,
     baseline_or_sensitivity: str = "baseline",
-    source_assumptions_version: str = "v2",
+    source_assumptions_version: str = SOURCE_ASSUMPTIONS_VERSION,
     apply_neutrality_condition: bool = True,
     fuel_emission_factor_kgco2_per_kg: float = 3.15,
     displacement_factor: float = 1.0,
@@ -533,6 +543,13 @@ def run_co2_reduction_analysis(
     dac_elec_intensity: float = 250.0,
     htse_elec_intensity: float = 37.5,
     htse_heat_intensity: float = 6.5,
+    concept_mode: str = "dac_max",
+    enforce_min_meoh_output: bool = False,
+    min_meoh_t_yr: float = 0.0,
+    headline_role: str = "unspecified",
+    headline_scenario_id: str = HEADLINE_SCENARIO_ID,
+    net_power_scale: float = 1.0,
+    waste_heat_scale: float = 1.0,
     optimization_mode: str = None,
     optimization_multistart: int = 16,
     optimization_screen_grid: int = 61,
@@ -551,9 +568,9 @@ def run_co2_reduction_analysis(
         Dictionary with CO2 reduction results
     """
     # Get available energy streams
-    W_net = plant_result.W_net  # Net electricity after fan
+    W_net = plant_result.W_net * net_power_scale  # Net electricity after fan
     W_fan = plant_result.W_fan
-    Q_reject = plant_result.Q_reject  # Heat going to cooler
+    Q_reject = plant_result.Q_reject * waste_heat_scale  # Heat going to cooler
 
     # Waste heat temperature - from LTR hot outlet (T_7)
     if plant_result.cycle_result and plant_result.cycle_result.state:
@@ -582,6 +599,11 @@ def run_co2_reduction_analysis(
         n_multistart=optimization_multistart,
         global_screen_grid=optimization_screen_grid,
         objective_gap_tolerance_rel=objective_gap_tolerance_rel,
+        concept_mode=concept_mode,
+        enforce_min_meoh_output=enforce_min_meoh_output,
+        min_meoh_t_yr=min_meoh_t_yr,
+        headline_role=headline_role,
+        headline_scenario_id=headline_scenario_id,
         enforce_htse_heat_constraint=enforce_htse_heat_constraint,
         apply_neutrality_condition=apply_neutrality_condition,
         fuel_emission_factor_kgco2_per_kg=fuel_emission_factor_kgco2_per_kg,
@@ -638,10 +660,21 @@ def run_co2_reduction_analysis(
                 'objective_gap_tolerance_rel',
                 objective_gap_tolerance_rel,
             ),
+            'concept_mode': concept_mode,
+            'product_constraint_active': enforce_min_meoh_output,
+            'min_meoh_t_yr': min_meoh_t_yr,
+            'headline_role': headline_role,
+            'headline_scenario_id': headline_scenario_id,
+            'net_power_scale': net_power_scale,
+            'waste_heat_scale': waste_heat_scale,
             'boundary_statement': (
-                'Headline operational-only boundary'
-                if mode == 'operational_only'
-                else 'Sensitivity fuel-displacement boundary'
+                'Headline fuel-displacement boundary (fuel-factory concept)'
+                if scenario_id == headline_scenario_id
+                else (
+                    'Operational-only accounting sensitivity boundary'
+                    if mode == 'operational_only'
+                    else 'Fuel-displacement sensitivity boundary'
+                )
             ),
         },
 
@@ -666,6 +699,9 @@ def run_co2_reduction_analysis(
             'objective_best_alt': alloc_result.objective_best_alt,
             'objective_gap_rel': alloc_result.objective_gap_rel,
             'optimizer_diagnostics': alloc_result.optimizer_diagnostics,
+            'product_constraint_active': alloc_result.product_constraint_active,
+            'min_meoh_t_yr': alloc_result.min_meoh_t_yr,
+            'headline_role': alloc_result.headline_role,
         },
 
         'production_rates': {
@@ -868,26 +904,44 @@ def build_assumptions_register(output_csv: Path) -> None:
             "units": "MWth",
             "source_doc": "teammate_resources/archive_raw_pdfs/Presentation Demo (1).pdf",
             "owner": "Model",
-            "scenario": "S1_36MW_OPONLY",
+            "scenario": "S3_36MW_FUELDISP",
             "status": "sensitivity_only",
         },
         {
             "parameter": "Headline accounting mode",
-            "value": "operational_only",
-            "units": "mode",
-            "source_doc": "Locked decision",
-            "owner": "Model",
-            "scenario": "S0_BASE_30MW_OPONLY",
-            "status": "locked",
-        },
-        {
-            "parameter": "Fuel-displacement accounting mode",
             "value": "fuel_displacement",
             "units": "mode",
             "source_doc": "Locked decision",
             "owner": "Model",
-            "scenario": "S2_30MW_FUELDISP",
+            "scenario": HEADLINE_SCENARIO_ID,
+            "status": "locked",
+        },
+        {
+            "parameter": "Operational-only accounting mode",
+            "value": "operational_only",
+            "units": "mode",
+            "source_doc": "Locked decision",
+            "owner": "Model",
+            "scenario": "S0_BASE_30MW_OPONLY;S1_36MW_OPONLY",
             "status": "sensitivity_only",
+        },
+        {
+            "parameter": "Headline concept mode",
+            "value": "fuel_factory",
+            "units": "mode",
+            "source_doc": "Locked decision",
+            "owner": "Model",
+            "scenario": HEADLINE_SCENARIO_ID,
+            "status": "locked",
+        },
+        {
+            "parameter": "Headline methanol floor",
+            "value": 8833.0,
+            "units": "tMeOH/year",
+            "source_doc": "Scaled from Phase-1 target 10,600 t/yr at 36 MWth",
+            "owner": "Model",
+            "scenario": HEADLINE_SCENARIO_ID,
+            "status": "locked",
         },
         {
             "parameter": "Energy closure tolerance",
@@ -921,25 +975,41 @@ def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
             "scenario_id": "S0_BASE_30MW_OPONLY",
             "Q_thermal_MW": 30.0,
             "co2_accounting_mode": "operational_only",
-            "baseline_or_sensitivity": "baseline",
+            "baseline_or_sensitivity": "sensitivity_boundary",
+            "headline_role": "sensitivity_boundary",
+            "concept_mode": "dac_max",
+            "enforce_min_meoh_output": False,
+            "min_meoh_t_yr": 0.0,
         },
         {
             "scenario_id": "S1_36MW_OPONLY",
             "Q_thermal_MW": 36.0,
             "co2_accounting_mode": "operational_only",
-            "baseline_or_sensitivity": "sensitivity",
+            "baseline_or_sensitivity": "sensitivity_boundary",
+            "headline_role": "sensitivity_boundary",
+            "concept_mode": "dac_max",
+            "enforce_min_meoh_output": False,
+            "min_meoh_t_yr": 0.0,
         },
         {
             "scenario_id": "S2_30MW_FUELDISP",
             "Q_thermal_MW": 30.0,
             "co2_accounting_mode": "fuel_displacement",
-            "baseline_or_sensitivity": "sensitivity",
+            "baseline_or_sensitivity": "baseline",
+            "headline_role": "headline",
+            "concept_mode": "fuel_factory",
+            "enforce_min_meoh_output": True,
+            "min_meoh_t_yr": 8833.0,
         },
         {
             "scenario_id": "S3_36MW_FUELDISP",
             "Q_thermal_MW": 36.0,
             "co2_accounting_mode": "fuel_displacement",
-            "baseline_or_sensitivity": "sensitivity_optional",
+            "baseline_or_sensitivity": "sensitivity_power",
+            "headline_role": "sensitivity_power",
+            "concept_mode": "fuel_factory",
+            "enforce_min_meoh_output": True,
+            "min_meoh_t_yr": 10600.0,
         },
     ]
 
@@ -954,7 +1024,7 @@ def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
             Q_thermal_MW=sc["Q_thermal_MW"],
             scenario_id=sc["scenario_id"],
             baseline_or_sensitivity=sc["baseline_or_sensitivity"],
-            source_assumptions_version="v2",
+            source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
             cooling_aux_fraction=0.01,
             verbose=False,
         )
@@ -965,10 +1035,15 @@ def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
             scenario_name=sc["scenario_id"],
             scenario_id=sc["scenario_id"],
             baseline_or_sensitivity=sc["baseline_or_sensitivity"],
-            source_assumptions_version="v2",
+            source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
             apply_neutrality_condition=True,
             fuel_emission_factor_kgco2_per_kg=3.15,
             displacement_factor=1.0,
+            concept_mode=sc["concept_mode"],
+            enforce_min_meoh_output=sc["enforce_min_meoh_output"],
+            min_meoh_t_yr=sc["min_meoh_t_yr"],
+            headline_role=sc["headline_role"],
+            headline_scenario_id=HEADLINE_SCENARIO_ID,
             verbose=False,
         )
         combined = {
@@ -984,7 +1059,7 @@ def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
 
 
 def build_uncertainty_summary(
-    baseline_plant_result,
+    headline_plant_result,
     output_json: Path,
     samples: int = 40,
     seed: int = 20260301,
@@ -997,18 +1072,31 @@ def build_uncertainty_summary(
         dac_elec = float(np.clip(250.0 * rng.normal(1.0, 0.08), 150.0, 400.0))
         htse_elec = float(np.clip(37.5 * rng.normal(1.0, 0.07), 30.0, 50.0))
         htse_heat = float(np.clip(6.5 * rng.normal(1.0, 0.10), 4.0, 9.0))
+        fuel_ef = float(np.clip(3.15 * rng.normal(1.0, 0.05), 2.8, 3.5))
+        displacement = float(np.clip(1.0 * rng.normal(1.0, 0.08), 0.75, 1.25))
+        net_power_scale = float(np.clip(rng.normal(1.0, 0.03), 0.92, 1.08))
+        waste_heat_scale = float(np.clip(rng.normal(1.0, 0.03), 0.92, 1.08))
         out = run_co2_reduction_analysis(
-            baseline_plant_result,
+            headline_plant_result,
             Q_thermal=30e6,
-            co2_accounting_mode="operational_only",
-            scenario_name="S0_BASE_30MW_OPONLY_UQ",
-            scenario_id="S0_BASE_30MW_OPONLY",
+            co2_accounting_mode="fuel_displacement",
+            scenario_name=f"{HEADLINE_SCENARIO_ID}_UQ",
+            scenario_id=HEADLINE_SCENARIO_ID,
             baseline_or_sensitivity="baseline",
-            source_assumptions_version="v2",
+            source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
             dac_heat_intensity=dac_heat,
             dac_elec_intensity=dac_elec,
             htse_elec_intensity=htse_elec,
             htse_heat_intensity=htse_heat,
+            concept_mode="fuel_factory",
+            enforce_min_meoh_output=True,
+            min_meoh_t_yr=8833.0,
+            headline_role="headline",
+            headline_scenario_id=HEADLINE_SCENARIO_ID,
+            fuel_emission_factor_kgco2_per_kg=fuel_ef,
+            displacement_factor=displacement,
+            net_power_scale=net_power_scale,
+            waste_heat_scale=waste_heat_scale,
             optimization_mode="headline_operational",
             optimization_multistart=4,
             optimization_screen_grid=optimization_screen_grid,
@@ -1039,39 +1127,40 @@ def build_delta_table(
     scenario_results: Dict[str, Dict],
     output_csv: Path,
 ) -> None:
+    headline = scenario_results[HEADLINE_SCENARIO_ID]
     s0 = scenario_results["S0_BASE_30MW_OPONLY"]
     rows = [
         {
             "item": "M5 Net electric output (assumed 13.5 MWe)",
             "old_value": 13.5,
-            "new_value": round(s0["plant"]["power_MW"]["W_net"], 3),
+            "new_value": round(headline["plant"]["power_MW"]["W_net"], 3),
             "units": "MWe",
-            "reason": "Replaced fixed assumption with solved baseline output",
-            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+            "reason": "Replaced fixed assumption with solved headline fuel-factory output",
+            "source": f"run_tests scenario {HEADLINE_SCENARIO_ID}",
         },
         {
             "item": "M5 Electricity to HTSE (assumed 10 MWe)",
             "old_value": 10.0,
-            "new_value": round(s0["co2"]["allocation"]["W_to_HTSE_MW"], 3),
+            "new_value": round(headline["co2"]["allocation"]["W_to_HTSE_MW"], 3),
             "units": "MWe",
-            "reason": "Allocation now constrained by modelled plant net power and HTSE heat",
-            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+            "reason": "Headline fuel-factory allocation is constrained by methanol floor and HTSE heat",
+            "source": f"run_tests scenario {HEADLINE_SCENARIO_ID}",
         },
         {
-            "item": "M5 Heat to DAC (assumed 5 MWth)",
-            "old_value": 5.0,
-            "new_value": round(s0["co2"]["allocation"]["Q_to_DAC_MW"], 3),
-            "units": "MWth",
-            "reason": "Replaced static split with optimized constrained allocation",
-            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+            "item": "M5 Methanol output (phase-1 target 10,600 t/yr)",
+            "old_value": 10600.0,
+            "new_value": round(headline["co2"]["production_rates"]["MeOH_produced_t_yr"], 3),
+            "units": "t/year",
+            "reason": "Headline 30 MWth case enforces scaled minimum production floor",
+            "source": f"run_tests scenario {HEADLINE_SCENARIO_ID}",
         },
         {
             "item": "M3 Demo cycle efficiency claim (~45%)",
             "old_value": 45.0,
-            "new_value": round(s0["plant"]["efficiencies"]["eta_thermal_percent"], 3),
+            "new_value": round(headline["plant"]["efficiencies"]["eta_thermal_percent"], 3),
             "units": "%",
-            "reason": "Current integrated baseline at 40C ambient is lower than optimistic claim",
-            "source": "results from coupled model baseline scenario",
+            "reason": "Current integrated headline at 40C ambient is lower than optimistic claim",
+            "source": f"results from coupled model {HEADLINE_SCENARIO_ID}",
         },
         {
             "item": "M6 conversion check (6.36 gCO2/kWh)",
@@ -1080,6 +1169,14 @@ def build_delta_table(
             "units": "kgCO2/TJ",
             "reason": "Corrected g/kWh to kg/TJ conversion",
             "source": "built-in conversion utility check",
+        },
+        {
+            "item": "Boundary sensitivity reference FoM (operational-only, 30 MWth)",
+            "old_value": "",
+            "new_value": round(s0["co2"]["figures_of_merit"]["CO2_reduction_t_per_MWth_per_yr"], 3),
+            "units": "tCO2/MWth/year",
+            "reason": "Retained as accounting sensitivity, not headline",
+            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
         },
     ]
     _write_csv(output_csv, rows, ["item", "old_value", "new_value", "units", "reason", "source"])
@@ -1114,7 +1211,7 @@ def build_architecture_matrix(output_csv: Path) -> None:
         {
             "block": "CO2 accounting boundary",
             "implemented_in": "process/allocation.py",
-            "governing_basis": "operational_only headline + fuel_displacement sensitivity",
+            "governing_basis": "fuel_displacement headline + operational_only sensitivity",
             "constraints": "unit conversion checks and scenario metadata tags",
             "validation_anchor": "conversion round-trip checks",
             "known_limitations": "Fuel displacement depends on assumed reference EF",
@@ -1137,9 +1234,9 @@ def build_limitations_register(output_csv: Path) -> None:
         },
         {
             "id": "LIM-002",
-            "limitation": "Fuel-displacement accounting depends on assumed fuel EF and displacement factor",
-            "impact": "Sensitivity FoM spread can be significant",
-            "mitigation_next_step": "Calibrate with RR-preferred accounting boundary and factors",
+            "limitation": "Headline fuel-displacement accounting depends on assumed fuel EF and displacement factor",
+            "impact": "Headline FoM uncertainty is sensitive to boundary assumptions",
+            "mitigation_next_step": "Calibrate fuel EF/displacement with RR-preferred accounting boundary and factors",
         },
         {
             "id": "LIM-003",
@@ -1197,17 +1294,330 @@ def build_constraint_margin_table(
     )
 
 
+def build_methods_and_limitations_sheet(output_md: Path) -> None:
+    output_md.parent.mkdir(parents=True, exist_ok=True)
+    text = f"""# Methods and Limitations (Final Q&A Sheet)
+
+## Headline Policy
+1. Headline scenario ID: `{HEADLINE_SCENARIO_ID}`.
+2. Headline concept mode: `fuel_factory`.
+3. Headline CO2 boundary: `fuel_displacement`.
+4. Headline thermal basis: `30 MWth`.
+5. Heat rejection mode for headline: `fixed_boundary`.
+
+## Core Method
+1. Solve HTGR+sCO2 plant state with coupled cycle and fixed boundary cooling assumptions.
+2. Run constrained process allocation with HTSE/DAC/methanol pathways.
+3. Enforce minimum methanol output floor for fuel-factory headline behavior.
+4. Compute CO2 FoM under explicit accounting boundary and export scenario-tagged results.
+5. Attach strict gate results and uncertainty summary to canonical pack.
+
+## Validation and Gates
+1. Dostal cycle benchmark anchor.
+2. Secondary cycle anchor point check.
+3. Process analytic closure checks (DAC/HTSE/methanol stoichiometry).
+4. Accounting-mode consistency check from identical plant state.
+5. Strict closure and objective-consistency gates before report export.
+
+## Known Limitations
+1. Reactor behavior is boundary-condition driven; no transient core simulation in this cycle.
+2. Fuel-displacement headline depends on reference fossil fuel EF and displacement factor assumptions.
+3. Heat rejection is represented as boundary assumption in headline mode; coupled cooler remains sensitivity evidence.
+"""
+    with open(output_md, "w") as f:
+        f.write(text)
+
+
+def build_report_number_map(
+    scenario_results: Dict[str, Dict],
+    uncertainty: Dict[str, float],
+    output_csv: Path,
+) -> Dict[str, object]:
+    rows = []
+    for scenario_id, payload in sorted(scenario_results.items()):
+        sc = payload["scenario"]
+        co2 = payload["co2"]
+        plant = payload["plant"]
+        boundary = co2["figures_of_merit"]["co2_accounting_mode"]
+        role = sc.get("headline_role", "unspecified")
+
+        rows.extend(
+            [
+                {
+                    "report_section": "1",
+                    "claim_text_short": "Primary FoM (tCO2/MWth/yr)",
+                    "value": co2["figures_of_merit"]["CO2_reduction_t_per_MWth_per_yr"],
+                    "units": "tCO2/MWth/year",
+                    "scenario_id": scenario_id,
+                    "co2_accounting_mode": boundary,
+                    "headline_or_sensitivity": role,
+                    "source_file": f"outputs/canonical_pack/scenarios/{scenario_id}.json",
+                    "source_field": "co2.figures_of_merit.CO2_reduction_t_per_MWth_per_yr",
+                },
+                {
+                    "report_section": "6",
+                    "claim_text_short": "Net electric output",
+                    "value": plant["power_MW"]["W_net"],
+                    "units": "MWe",
+                    "scenario_id": scenario_id,
+                    "co2_accounting_mode": boundary,
+                    "headline_or_sensitivity": role,
+                    "source_file": f"outputs/canonical_pack/scenarios/{scenario_id}.json",
+                    "source_field": "plant.power_MW.W_net",
+                },
+                {
+                    "report_section": "6",
+                    "claim_text_short": "Methanol production",
+                    "value": co2["production_rates"]["MeOH_produced_t_yr"],
+                    "units": "t/year",
+                    "scenario_id": scenario_id,
+                    "co2_accounting_mode": boundary,
+                    "headline_or_sensitivity": role,
+                    "source_file": f"outputs/canonical_pack/scenarios/{scenario_id}.json",
+                    "source_field": "co2.production_rates.MeOH_produced_t_yr",
+                },
+            ]
+        )
+
+    # Add headline uncertainty rows for report section 6 and 8.
+    rows.extend(
+        [
+            {
+                "report_section": "6",
+                "claim_text_short": "Headline UQ P50 FoM",
+                "value": uncertainty["p50"],
+                "units": "tCO2/MWth/year",
+                "scenario_id": HEADLINE_SCENARIO_ID,
+                "co2_accounting_mode": "fuel_displacement",
+                "headline_or_sensitivity": "headline",
+                "source_file": "outputs/canonical_pack/uncertainty_summary.json",
+                "source_field": "p50",
+            },
+            {
+                "report_section": "8",
+                "claim_text_short": "Headline UQ 95% CI low",
+                "value": uncertainty["ci95_low"],
+                "units": "tCO2/MWth/year",
+                "scenario_id": HEADLINE_SCENARIO_ID,
+                "co2_accounting_mode": "fuel_displacement",
+                "headline_or_sensitivity": "headline",
+                "source_file": "outputs/canonical_pack/uncertainty_summary.json",
+                "source_field": "ci95_low",
+            },
+            {
+                "report_section": "8",
+                "claim_text_short": "Headline UQ 95% CI high",
+                "value": uncertainty["ci95_high"],
+                "units": "tCO2/MWth/year",
+                "scenario_id": HEADLINE_SCENARIO_ID,
+                "co2_accounting_mode": "fuel_displacement",
+                "headline_or_sensitivity": "headline",
+                "source_file": "outputs/canonical_pack/uncertainty_summary.json",
+                "source_field": "ci95_high",
+            },
+        ]
+    )
+
+    fieldnames = [
+        "report_section",
+        "claim_text_short",
+        "value",
+        "units",
+        "scenario_id",
+        "co2_accounting_mode",
+        "headline_or_sensitivity",
+        "source_file",
+        "source_field",
+    ]
+    _write_csv(output_csv, rows, fieldnames)
+
+    failures = []
+    for idx, row in enumerate(rows, start=1):
+        for required_key in ("scenario_id", "co2_accounting_mode", "source_file", "source_field"):
+            if str(row.get(required_key, "")).strip() == "":
+                failures.append(f"row {idx} missing {required_key}")
+    if not any(r["scenario_id"] == HEADLINE_SCENARIO_ID for r in rows):
+        failures.append(f"headline scenario {HEADLINE_SCENARIO_ID} missing from report_number_map")
+
+    gate = {"passed": len(failures) == 0, "failures": failures, "n_rows": len(rows)}
+    return gate
+
+
+def run_process_analytic_validation_checks() -> Dict[str, object]:
+    """Analytic checks for DAC/HTSE/Methanol model closures."""
+    checks = []
+
+    dac_cfg = DACConfig(heat_intensity=1750.0, elec_intensity=250.0, T_regen_min=373.15, capacity_factor=1.0)
+    dac = DACModel(dac_cfg)
+    heat_per_kg = dac_cfg.heat_intensity * 3.6e6 / 1000.0
+    elec_per_kg = dac_cfg.elec_intensity * 3.6e6 / 1000.0
+    dac_target_kg_s = 1.0
+    dac_out = dac.calculate(
+        Q_heat=dac_target_kg_s * heat_per_kg,
+        W_elec=dac_target_kg_s * elec_per_kg,
+        T_heat=400.0,
+    )
+    dac_error = abs(dac_out["m_CO2_captured_kg_s"] - dac_target_kg_s)
+    checks.append(
+        {
+            "name": "dac_energy_intensity_closure",
+            "passed": bool(dac_out["feasible"] and dac_error <= 1e-9),
+            "value": dac_out["m_CO2_captured_kg_s"],
+            "target": dac_target_kg_s,
+            "error": dac_error,
+        }
+    )
+
+    htse_cfg = HTSEConfig(elec_intensity=37.5, heat_intensity=6.5, capacity_factor=1.0)
+    htse = HTSEModel(htse_cfg)
+    htse_target_kg_s = 1.0
+    htse_out = htse.calculate(
+        W_elec=htse_target_kg_s * htse_cfg.elec_intensity * 3.6e6,
+        Q_steam=htse_target_kg_s * htse_cfg.heat_intensity * 3.6e6,
+    )
+    htse_error = abs(htse_out["m_H2_produced_kg_s"] - htse_target_kg_s)
+    checks.append(
+        {
+            "name": "htse_energy_intensity_closure",
+            "passed": bool(htse_error <= 1e-9),
+            "value": htse_out["m_H2_produced_kg_s"],
+            "target": htse_target_kg_s,
+            "error": htse_error,
+        }
+    )
+
+    meoh_cfg = MethanolConfig(overall_conversion=0.97)
+    meoh = MethanolModel(meoh_cfg)
+    meoh_target_kg_s = 1.0
+    h2_feed = meoh_target_kg_s * meoh_cfg.kg_H2_per_kg_MeOH / meoh_cfg.overall_conversion
+    co2_feed = meoh_target_kg_s * meoh_cfg.kg_CO2_per_kg_MeOH / meoh_cfg.overall_conversion
+    meoh_out = meoh.calculate(h2_feed, co2_feed)
+    meoh_error = abs(meoh_out["m_MeOH_produced_kg_s"] - meoh_target_kg_s)
+    checks.append(
+        {
+            "name": "methanol_stoichiometry_closure",
+            "passed": bool(meoh_error <= 1e-9),
+            "value": meoh_out["m_MeOH_produced_kg_s"],
+            "target": meoh_target_kg_s,
+            "error": meoh_error,
+        }
+    )
+
+    return {
+        "passed": all(bool(c["passed"]) for c in checks),
+        "checks": checks,
+    }
+
+
+def run_accounting_mode_consistency_check(headline_plant_result) -> Dict[str, object]:
+    """Check boundary-mode consistency from identical plant state."""
+    op = run_co2_reduction_analysis(
+        headline_plant_result,
+        Q_thermal=30e6,
+        co2_accounting_mode="operational_only",
+        scenario_name="ACCOUNTING_MODE_CHECK_OP",
+        scenario_id="S0_BASE_30MW_OPONLY",
+        baseline_or_sensitivity="sensitivity_boundary",
+        source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
+        concept_mode="dac_max",
+        enforce_min_meoh_output=False,
+        min_meoh_t_yr=0.0,
+        headline_role="sensitivity_boundary",
+        headline_scenario_id=HEADLINE_SCENARIO_ID,
+        verbose=False,
+    )
+    fd = run_co2_reduction_analysis(
+        headline_plant_result,
+        Q_thermal=30e6,
+        co2_accounting_mode="fuel_displacement",
+        scenario_name="ACCOUNTING_MODE_CHECK_FD",
+        scenario_id=HEADLINE_SCENARIO_ID,
+        baseline_or_sensitivity="baseline",
+        source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
+        concept_mode="fuel_factory",
+        enforce_min_meoh_output=True,
+        min_meoh_t_yr=8833.0,
+        headline_role="headline",
+        headline_scenario_id=HEADLINE_SCENARIO_ID,
+        verbose=False,
+    )
+
+    op_val = float(op["co2_balance_t_yr"]["NET_REDUCTION"])
+    fd_val = float(fd["co2_balance_t_yr"]["NET_REDUCTION"])
+    delta = abs(fd_val - op_val)
+    passed = (
+        op["figures_of_merit"]["co2_accounting_mode"] == "operational_only"
+        and fd["figures_of_merit"]["co2_accounting_mode"] == "fuel_displacement"
+        and delta > 1e-6
+    )
+    return {
+        "passed": bool(passed),
+        "operational_only_t_yr": op_val,
+        "fuel_displacement_t_yr": fd_val,
+        "absolute_delta_t_yr": delta,
+    }
+
+
+def run_secondary_cycle_anchor_check() -> Dict[str, object]:
+    """
+    Secondary cycle anchor at an alternate operating point with explicit acceptance band.
+    """
+    config = CycleConfig(
+        eta_turbine=0.90,
+        eta_MC=0.89,
+        eta_RC=0.89,
+        dT_pinch_min=5.0,
+        n_segments=20,
+        dT_crit_margin=1.0,
+        dP_crit_margin=0.2e6,
+    )
+    cycle = SCO2RecompressionCycle(config)
+    result = cycle.solve(
+        T_1=308.15,
+        T_5=803.15,
+        P_high=22e6,
+        P_low=8.0e6,
+        m_dot=250.0,
+        f_recomp=0.33,
+    )
+    lower = 0.30
+    upper = 0.55
+    eta = float(result.eta_thermal)
+    passed = bool(result.converged and lower <= eta <= upper)
+    return {
+        "passed": passed,
+        "converged": bool(result.converged),
+        "eta_thermal": eta,
+        "acceptance_band": [lower, upper],
+    }
+
+
 def report_gate_check(
     scenario_results: Dict[str, Dict],
     baseline_plant_result,
     output_root: Path,
 ) -> Dict[str, object]:
     """Strict interim gate checks that must pass before canonical export is accepted."""
-    required_meta = {"scenario_id", "baseline_or_sensitivity", "source_assumptions_version"}
+    required_plant_meta = {
+        "scenario_id",
+        "baseline_or_sensitivity",
+        "source_assumptions_version",
+        "heat_rejection_mode",
+    }
+    required_co2_meta = {
+        "scenario_id",
+        "baseline_or_sensitivity",
+        "source_assumptions_version",
+    }
     required_boundary_meta = {
         "co2_accounting_mode",
         "co2_boundary_mode",
         "optimization_mode",
+        "concept_mode",
+        "headline_role",
+        "headline_scenario_id",
+        "product_constraint_active",
+        "min_meoh_t_yr",
     }
     required_scenario_metadata = {
         "scenario_id",
@@ -1215,6 +1625,12 @@ def report_gate_check(
         "source_assumptions_version",
         "co2_accounting_mode",
         "co2_boundary_mode",
+        "concept_mode",
+        "headline_role",
+        "headline_scenario_id",
+        "product_constraint_active",
+        "product_constraint_passed",
+        "min_meoh_t_yr",
     }
 
     failures = []
@@ -1226,10 +1642,10 @@ def report_gate_check(
         plant_meta = payload["plant"]["metadata"]
         co2_meta = payload["co2"]["metadata"]
         scenario_meta = payload["co2"]["scenario_metadata"]
-        if not required_meta.issubset(set(plant_meta.keys())):
+        if not required_plant_meta.issubset(set(plant_meta.keys())):
             metadata_ok = False
             failures.append(f"{scenario_id}: missing required plant metadata tags")
-        if not required_meta.issubset(set(co2_meta.keys())):
+        if not required_co2_meta.issubset(set(co2_meta.keys())):
             metadata_ok = False
             failures.append(f"{scenario_id}: missing required CO2 metadata tags")
         if not required_boundary_meta.issubset(set(co2_meta.keys())):
@@ -1240,32 +1656,43 @@ def report_gate_check(
             failures.append(f"{scenario_id}: missing required scenario metadata tags")
     gate_results["metadata_completeness"] = {
         "passed": metadata_ok,
-        "required_meta": sorted(required_meta),
+        "required_plant_meta": sorted(required_plant_meta),
+        "required_co2_meta": sorted(required_co2_meta),
         "required_boundary_meta": sorted(required_boundary_meta),
         "required_scenario_metadata": sorted(required_scenario_metadata),
     }
 
     # Headline scenario gate checks.
-    s0 = scenario_results["S0_BASE_30MW_OPONLY"]
-    s0_status = s0["plant"]["status"]
-    s0_alloc = s0["co2"]["allocation"]
+    if HEADLINE_SCENARIO_ID not in scenario_results:
+        failures.append(f"Missing required headline scenario: {HEADLINE_SCENARIO_ID}")
+        gate_results["overall"] = {"passed": False, "failures": failures}
+        with open(output_root / "audit_gate_results.json", "w") as f:
+            json.dump(gate_results, f, indent=2)
+        raise RuntimeError("Strict interim gate(s) failed: " + "; ".join(failures))
+
+    headline_payload = scenario_results[HEADLINE_SCENARIO_ID]
+    headline_status = headline_payload["plant"]["status"]
+    headline_alloc = headline_payload["co2"]["allocation"]
+    headline_meta = headline_payload["co2"]["metadata"]
+    headline_scenario = headline_payload["scenario"]
+    headline_prod = headline_payload["co2"]["production_rates"]
 
     plant_energy_ok = (
-        bool(s0_status["converged"])
-        and bool(s0_status["feasible"])
-        and float(s0_status["energy_closure_rel"]) <= 0.005
+        bool(headline_status["converged"])
+        and bool(headline_status["feasible"])
+        and float(headline_status["energy_closure_rel"]) <= 0.005
     )
     gate_results["headline_plant_energy"] = {
         "passed": plant_energy_ok,
-        "converged": s0_status["converged"],
-        "feasible": s0_status["feasible"],
-        "energy_closure_rel": s0_status["energy_closure_rel"],
+        "converged": headline_status["converged"],
+        "feasible": headline_status["feasible"],
+        "energy_closure_rel": headline_status["energy_closure_rel"],
         "threshold": 0.005,
     }
     if not plant_energy_ok:
-        failures.append("S0 headline plant closure/convergence gate failed")
+        failures.append(f"{HEADLINE_SCENARIO_ID} headline plant closure/convergence gate failed")
 
-    cycle_energy_rel = s0_status.get("cycle_energy_closure_rel")
+    cycle_energy_rel = headline_status.get("cycle_energy_closure_rel")
     cycle_energy_ok = cycle_energy_rel is not None and float(cycle_energy_rel) <= 0.005
     gate_results["headline_cycle_energy"] = {
         "passed": cycle_energy_ok,
@@ -1273,20 +1700,74 @@ def report_gate_check(
         "threshold": 0.005,
     }
     if not cycle_energy_ok:
-        failures.append("S0 headline cycle energy-closure gate failed")
+        failures.append(f"{HEADLINE_SCENARIO_ID} headline cycle energy-closure gate failed")
 
-    objective_gap = float(s0_alloc.get("objective_gap_rel", 1.0))
-    objective_consistency_ok = bool(s0_alloc.get("objective_consistency_passed", False)) and objective_gap <= 0.01
+    objective_gap = float(headline_alloc.get("objective_gap_rel", 1.0))
+    objective_consistency_ok = bool(headline_alloc.get("objective_consistency_passed", False)) and objective_gap <= 0.01
     gate_results["headline_objective_consistency"] = {
         "passed": objective_consistency_ok,
-        "objective_consistency_passed": s0_alloc.get("objective_consistency_passed"),
+        "objective_consistency_passed": headline_alloc.get("objective_consistency_passed"),
         "objective_gap_rel": objective_gap,
         "threshold": 0.01,
-        "objective_best_alt": s0_alloc.get("objective_best_alt"),
-        "objective_value": s0_alloc.get("objective_value"),
+        "objective_best_alt": headline_alloc.get("objective_best_alt"),
+        "objective_value": headline_alloc.get("objective_value"),
     }
     if not objective_consistency_ok:
-        failures.append("S0 headline objective-consistency gate failed")
+        failures.append(f"{HEADLINE_SCENARIO_ID} headline objective-consistency gate failed")
+
+    headline_policy_ok = (
+        headline_scenario.get("scenario_id") == HEADLINE_SCENARIO_ID
+        and headline_scenario.get("co2_accounting_mode") == "fuel_displacement"
+        and headline_scenario.get("headline_role") == "headline"
+        and headline_scenario.get("concept_mode") == "fuel_factory"
+        and bool(headline_meta.get("product_constraint_active"))
+        and float(headline_meta.get("min_meoh_t_yr", 0.0)) > 0.0
+    )
+    gate_results["headline_policy_consistency"] = {
+        "passed": headline_policy_ok,
+        "headline_scenario_id": HEADLINE_SCENARIO_ID,
+        "co2_accounting_mode": headline_scenario.get("co2_accounting_mode"),
+        "headline_role": headline_scenario.get("headline_role"),
+        "concept_mode": headline_scenario.get("concept_mode"),
+        "product_constraint_active": headline_meta.get("product_constraint_active"),
+        "min_meoh_t_yr": headline_meta.get("min_meoh_t_yr"),
+    }
+    if not headline_policy_ok:
+        failures.append(f"{HEADLINE_SCENARIO_ID} policy/metadata gate failed")
+
+    min_meoh = float(headline_alloc.get("min_meoh_t_yr", 0.0))
+    meoh_actual = float(headline_prod.get("MeOH_produced_t_yr", 0.0))
+    h2_actual = float(headline_prod.get("H2_produced_t_yr", 0.0))
+    floor_ok = (
+        bool(headline_alloc.get("product_constraint_active"))
+        and min_meoh > 0.0
+        and meoh_actual + 1e-9 >= min_meoh
+        and h2_actual > 0.0
+    )
+    gate_results["headline_product_constraint"] = {
+        "passed": floor_ok,
+        "product_constraint_active": headline_alloc.get("product_constraint_active"),
+        "min_meoh_t_yr": min_meoh,
+        "meoh_produced_t_yr": meoh_actual,
+        "h2_produced_t_yr": h2_actual,
+    }
+    if not floor_ok:
+        failures.append(f"{HEADLINE_SCENARIO_ID} methanol-floor/production gate failed")
+
+    process_validation = run_process_analytic_validation_checks()
+    gate_results["process_analytic_validation"] = process_validation
+    if not process_validation["passed"]:
+        failures.append("Process analytic validation gate failed")
+
+    accounting_validation = run_accounting_mode_consistency_check(baseline_plant_result)
+    gate_results["accounting_mode_consistency"] = accounting_validation
+    if not accounting_validation["passed"]:
+        failures.append("Accounting mode consistency gate failed")
+
+    secondary_anchor = run_secondary_cycle_anchor_check()
+    gate_results["secondary_cycle_anchor"] = secondary_anchor
+    if not secondary_anchor["passed"]:
+        failures.append("Secondary cycle anchor gate failed")
 
     # UQ reproducibility gate (fixed seed -> identical summary).
     uq_a = build_uncertainty_summary(
@@ -1332,14 +1813,14 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
 
     scenario_results = run_stage2_scenarios(output_root)
 
-    # Use S0 plant state as baseline for uncertainty around process intensities.
+    # Use headline plant state as baseline for uncertainty around process and accounting inputs.
     _, baseline_plant_result = run_full_plant_solve(
         T_ambient_C=40.0,
         heat_rejection_mode="fixed_boundary",
         Q_thermal_MW=30.0,
-        scenario_id="S0_BASE_30MW_OPONLY",
+        scenario_id=HEADLINE_SCENARIO_ID,
         baseline_or_sensitivity="baseline",
-        source_assumptions_version="v2",
+        source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
         cooling_aux_fraction=0.01,
         verbose=False,
     )
@@ -1364,10 +1845,10 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
                 "W_net_MWe": payload["plant"]["power_MW"]["W_net"],
                 "eta_net_percent": payload["plant"]["efficiencies"]["eta_net_percent"],
                 "FOM_tCO2_per_MWth_yr": payload["co2"]["figures_of_merit"]["CO2_reduction_t_per_MWth_per_yr"],
-                "UQ_p50": uncertainty["p50"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
-                "UQ_p90": uncertainty["p90"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
-                "UQ_ci95_low": uncertainty["ci95_low"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
-                "UQ_ci95_high": uncertainty["ci95_high"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
+                "UQ_p50": uncertainty["p50"] if scenario_id == HEADLINE_SCENARIO_ID else "",
+                "UQ_p90": uncertainty["p90"] if scenario_id == HEADLINE_SCENARIO_ID else "",
+                "UQ_ci95_low": uncertainty["ci95_low"] if scenario_id == HEADLINE_SCENARIO_ID else "",
+                "UQ_ci95_high": uncertainty["ci95_high"] if scenario_id == HEADLINE_SCENARIO_ID else "",
             }
         )
     _write_csv(
@@ -1399,15 +1880,26 @@ def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
     build_limitations_register(output_root / "limitations_register.csv")
     build_equation_sheet(output_root / "equation_sheet.md")
     build_constraint_margin_table(scenario_results, output_root / "constraint_margin_table.csv")
+    build_methods_and_limitations_sheet(output_root / "methods_and_limitations_sheet.md")
+    report_map_gate = build_report_number_map(
+        scenario_results=scenario_results,
+        uncertainty=uncertainty,
+        output_csv=output_root / "report_number_map.csv",
+    )
+    if not report_map_gate["passed"]:
+        raise RuntimeError("Report number map gate failed: " + "; ".join(report_map_gate["failures"]))
 
     with open(output_root / "canonical_pack_index.json", "w") as f:
         json.dump(
             {
                 "generated_at": datetime.now().isoformat(),
-                "headline_scenario": "S0_BASE_30MW_OPONLY",
+                "headline_scenario": HEADLINE_SCENARIO_ID,
                 "scenarios": sorted(scenario_results.keys()),
+                "source_assumptions_version": SOURCE_ASSUMPTIONS_VERSION,
                 "strict_interim_gates_passed": gate_results["overall"]["passed"],
                 "strict_interim_gate_failures": gate_results["overall"]["failures"],
+                "report_map_gate_passed": report_map_gate["passed"],
+                "report_map_gate_failures": report_map_gate["failures"],
                 "output_root": str(output_root),
             },
             f,
@@ -1460,7 +1952,21 @@ def write_output_files(output_dir: str = None):
     print(f"Written: feasibility_report.txt")
 
     # 4. Run CO2 reduction analysis and write report
-    co2_results = run_co2_reduction_analysis(plant_result, Q_thermal=30e6, verbose=False)
+    co2_results = run_co2_reduction_analysis(
+        plant_result,
+        Q_thermal=30e6,
+        co2_accounting_mode="fuel_displacement",
+        scenario_name="headline_fuel_factory",
+        scenario_id=HEADLINE_SCENARIO_ID,
+        baseline_or_sensitivity="baseline",
+        source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
+        concept_mode="fuel_factory",
+        enforce_min_meoh_output=True,
+        min_meoh_t_yr=8833.0,
+        headline_role="headline",
+        headline_scenario_id=HEADLINE_SCENARIO_ID,
+        verbose=False,
+    )
 
     with open(output_path / 'co2_reduction_results.json', 'w') as f:
         json.dump(co2_results, f, indent=2)
@@ -1589,10 +2095,18 @@ def main():
     co2_results = run_co2_reduction_analysis(
         plant_result,
         Q_thermal=30e6,
-        co2_boundary_mode="operational_only",
+        co2_accounting_mode="fuel_displacement",
         allow_grid_export=False,
         enforce_htse_heat_constraint=True,
-        scenario_name="headline_htgr_only",
+        scenario_name="headline_fuel_factory",
+        scenario_id=HEADLINE_SCENARIO_ID,
+        baseline_or_sensitivity="baseline",
+        source_assumptions_version=SOURCE_ASSUMPTIONS_VERSION,
+        concept_mode="fuel_factory",
+        enforce_min_meoh_output=True,
+        min_meoh_t_yr=8833.0,
+        headline_role="headline",
+        headline_scenario_id=HEADLINE_SCENARIO_ID,
         verbose=True,
     )
 
@@ -1600,6 +2114,7 @@ def main():
     print(f"\nCO2 Reduction Analysis: {'PASSED (NET POSITIVE)' if co2_positive else 'FAILED (NET NEGATIVE)'}")
     print(f"  Net CO2 Reduction: {co2_results['co2_balance_t_yr']['NET_REDUCTION']:.1f} tonnes/year")
     print(f"  FOM (CO2/MWth/yr): {co2_results['figures_of_merit']['CO2_reduction_t_per_MWth_per_yr']:.1f} t_CO2/MWth/year")
+    print(f"  Methanol Produced: {co2_results['production_rates']['MeOH_produced_t_yr']:.1f} tonnes/year")
 
     # Generate output files
     print("\n" + "=" * 70)

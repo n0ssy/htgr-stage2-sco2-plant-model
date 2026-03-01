@@ -332,6 +332,11 @@ class AllocationConfig:
     n_multistart: int = 12
     global_screen_grid: int = 41
     objective_gap_tolerance_rel: float = 0.01
+    concept_mode: str = "dac_max"  # dac_max | fuel_factory
+    enforce_min_meoh_output: bool = False
+    min_meoh_t_yr: float = 0.0
+    headline_role: str = "unspecified"  # headline | sensitivity_power | sensitivity_boundary
+    headline_scenario_id: str = "S2_30MW_FUELDISP"
 
     # Process configurations
     dac_config: DACConfig = field(default_factory=DACConfig)
@@ -434,6 +439,9 @@ class AllocationResult:
     objective_best_alt: float
     objective_gap_rel: float
     optimizer_diagnostics: Dict[str, float]
+    product_constraint_active: bool
+    min_meoh_t_yr: float
+    headline_role: str
     iterations: int
     message: str
     scenario_metadata: Dict[str, object] = field(default_factory=dict)
@@ -484,6 +492,10 @@ class ProcessAllocator:
             raise ValueError("n_multistart must be >= 1")
         if self.config.global_screen_grid < 5:
             raise ValueError("global_screen_grid must be >= 5")
+        if self.config.concept_mode not in {"dac_max", "fuel_factory"}:
+            raise ValueError("concept_mode must be 'dac_max' or 'fuel_factory'")
+        if self.config.min_meoh_t_yr < 0:
+            raise ValueError("min_meoh_t_yr must be non-negative")
 
         self._conversion_checks_passed = conversion_checks_pass(self.config.grid_CO2_intensity)
 
@@ -543,6 +555,7 @@ class ProcessAllocator:
         m_CO2_dac = dac_out["m_CO2_captured_kg_s"] if dac_out["feasible"] else 0.0
         meoh_out = self.methanol.calculate(m_H2, m_CO2_dac)
         m_MeOH = meoh_out["m_MeOH_produced_kg_s"]
+        m_MeOH_t_yr = meoh_out["m_MeOH_produced_t_yr"]
 
         CO2_grid_kg_s = W_grid * cfg.grid_CO2_intensity / (3.6e6 * 1000.0)
         CO2_embodied_kg_s = m_MeOH * cfg.embodied_CO2_per_kg_MeOH
@@ -567,10 +580,15 @@ class ProcessAllocator:
         else:
             objective_value = CO2_net_kg_s
 
+        product_constraint_passed = True
+        if cfg.enforce_min_meoh_output:
+            product_constraint_passed = m_MeOH_t_yr + 1e-9 >= cfg.min_meoh_t_yr
+
         constraint_feasible = (
             elec_margin >= -1e-6
             and heat_margin >= -1e-6
             and (dac_out["feasible"] or not dac_feasible or Q_DAC <= 1e-6)
+            and product_constraint_passed
         )
 
         return {
@@ -590,11 +608,13 @@ class ProcessAllocator:
             "m_H2": m_H2,
             "m_CO2_dac": m_CO2_dac,
             "m_MeOH": m_MeOH,
+            "m_MeOH_t_yr": m_MeOH_t_yr,
             "CO2_grid_kg_s": CO2_grid_kg_s,
             "CO2_embodied_kg_s": CO2_embodied_kg_s,
             "CO2_displaced_fossil_kg_s": CO2_displaced_fossil_kg_s,
             "CO2_reemitted_synthetic_kg_s": CO2_reemitted_synthetic_kg_s,
             "CO2_net_kg_s": CO2_net_kg_s,
+            "product_constraint_passed": product_constraint_passed,
         }
 
     def _coarse_global_screen(
@@ -909,7 +929,12 @@ class ProcessAllocator:
         seconds_per_year = 365.25 * 24 * 3600
         capacity_factor = 0.90
 
-        allocation_feasible = bool(cand["constraint_feasible"] and objective_consistency_passed)
+        product_constraint_passed = bool(cand.get("product_constraint_passed", True))
+        allocation_feasible = bool(
+            cand["constraint_feasible"]
+            and objective_consistency_passed
+            and product_constraint_passed
+        )
         elec_margin = cand["elec_margin"]
         heat_margin = cand["heat_margin"]
         W_HTSE = cand["W_HTSE"]
@@ -996,6 +1021,9 @@ class ProcessAllocator:
                 "objective_gap_rel": float(objective_gap_rel),
                 "objective_gap_tolerance_rel": float(cfg.objective_gap_tolerance_rel),
             },
+            product_constraint_active=bool(cfg.enforce_min_meoh_output),
+            min_meoh_t_yr=float(cfg.min_meoh_t_yr),
+            headline_role=cfg.headline_role,
             iterations=iterations,
             message=message,
             scenario_metadata={
@@ -1015,6 +1043,12 @@ class ProcessAllocator:
                 "heat_margin_W": heat_margin,
                 "elec_margin_W": elec_margin,
                 "optimization_mode": cfg.optimization_mode,
+                "concept_mode": cfg.concept_mode,
+                "product_constraint_active": bool(cfg.enforce_min_meoh_output),
+                "product_constraint_passed": product_constraint_passed,
+                "min_meoh_t_yr": float(cfg.min_meoh_t_yr),
+                "headline_role": cfg.headline_role,
+                "headline_scenario_id": cfg.headline_scenario_id,
                 "objective_consistency_passed": objective_consistency_passed,
                 "objective_gap_rel": objective_gap_rel,
                 "objective_gap_tolerance_rel": cfg.objective_gap_tolerance_rel,
@@ -1050,6 +1084,9 @@ class ProcessAllocator:
             objective_best_alt=0,
             objective_gap_rel=1.0,
             optimizer_diagnostics={"error": 1.0},
+            product_constraint_active=bool(self.config.enforce_min_meoh_output),
+            min_meoh_t_yr=float(self.config.min_meoh_t_yr),
+            headline_role=self.config.headline_role,
             iterations=0,
             message=message,
             scenario_metadata={
@@ -1067,6 +1104,12 @@ class ProcessAllocator:
                 "displacement_factor": self.config.displacement_factor,
                 "conversion_checks_passed": self._conversion_checks_passed,
                 "optimization_mode": self.config.optimization_mode,
+                "concept_mode": self.config.concept_mode,
+                "product_constraint_active": bool(self.config.enforce_min_meoh_output),
+                "product_constraint_passed": False,
+                "min_meoh_t_yr": float(self.config.min_meoh_t_yr),
+                "headline_role": self.config.headline_role,
+                "headline_scenario_id": self.config.headline_scenario_id,
                 "objective_consistency_passed": False,
                 "objective_gap_rel": 1.0,
                 "objective_gap_tolerance_rel": self.config.objective_gap_tolerance_rel,
@@ -1141,6 +1184,9 @@ def calculate_plant_co2_reduction(
             'objective_consistency_passed': result.objective_consistency_passed,
             'objective_best_alt': result.objective_best_alt,
             'objective_gap_rel': result.objective_gap_rel,
+            'product_constraint_active': result.product_constraint_active,
+            'min_meoh_t_yr': result.min_meoh_t_yr,
+            'headline_role': result.headline_role,
         },
 
         'production': {
