@@ -1,0 +1,5 @@
+block,implemented_in,governing_basis,constraints,validation_anchor,known_limitations
+HTGR thermal source,cycle/coupled_solver.py,Q_thermal boundary with He in/out conditions,"T_He_return, energy_closure_rel",RR HTTR baseline references,No transient LOFC or 2D unit-cell reactor model
+sCO2 cycle,cycle/sco2_cycle.py,Recompression Brayton with segmented recuperators,"critical margins, pinch, TIT cap, E03 closure",validation/dostal_validation.py,No turbomachinery map calibration
+Allocation (DAC/HTSE/grid),process/allocation.py,SLSQP constrained allocation,electric + heat + HTSE steam demand,scenario matrix and allocation feasibility flags,No dynamic dispatch profile
+CO2 accounting boundary,process/allocation.py,fuel_displacement headline + operational_only sensitivity,unit conversion checks and scenario metadata tags,conversion round-trip checks,Fuel displacement depends on assumed reference EF

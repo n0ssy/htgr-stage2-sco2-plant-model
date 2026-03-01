@@ -1,0 +1,9 @@
+parameter,value,units,source_doc,owner,scenario,status
+Baseline reactor thermal power,30.0,MWth,source docs/Rolls Royce Fission Energy Project 25-26.pdf,Model,S0_BASE_30MW_OPONLY,locked
+Sensitivity reactor thermal power,36.0,MWth,teammate_resources/archive_raw_pdfs/Presentation Demo (1).pdf,Model,S3_36MW_FUELDISP,sensitivity_only
+Headline accounting mode,fuel_displacement,mode,Locked decision,Model,S2_30MW_FUELDISP,locked
+Operational-only accounting mode,operational_only,mode,Locked decision,Model,S0_BASE_30MW_OPONLY;S1_36MW_OPONLY,sensitivity_only
+Headline concept mode,fuel_factory,mode,Locked decision,Model,S2_30MW_FUELDISP,locked
+Headline methanol floor,8833.0,tMeOH/year,"Scaled from Phase-1 target 10,600 t/yr at 36 MWth",Model,S2_30MW_FUELDISP,locked
+Energy closure tolerance,0.005,relative,cycle/sco2_cycle.py + cycle/coupled_solver.py + run_tests.py,Model,ALL,locked
+Fuel emission factor,3.15,kgCO2/kg_fuel,teammate_resources/archive_raw_pdfs/Prim's Initial Research M6.pdf,Model,S2_30MW_FUELDISP,assumption

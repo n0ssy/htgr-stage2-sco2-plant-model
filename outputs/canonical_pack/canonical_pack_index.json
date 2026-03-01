@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-03-01T18:37:35.051726",
+  "headline_scenario": "S2_30MW_FUELDISP",
+  "scenarios": [
+    "S0_BASE_30MW_OPONLY",
+    "S1_36MW_OPONLY",
+    "S2_30MW_FUELDISP",
+    "S3_36MW_FUELDISP"
+  ],
+  "source_assumptions_version": "v3_fuel_factory_headline",
+  "strict_interim_gates_passed": true,
+  "strict_interim_gate_failures": [],
+  "report_map_gate_passed": true,
+  "report_map_gate_failures": [],
+  "output_root": "C:\\Users\\Student\\RR\\htgr-stage2-sco2-plant-model\\outputs\\canonical_pack"
+}

@@ -1,0 +1,7 @@
+item,old_value,new_value,units,reason,source
+M5 Net electric output (assumed 13.5 MWe),13.5,9.628,MWe,Replaced fixed assumption with solved headline fuel-factory output,run_tests scenario S2_30MW_FUELDISP
+M5 Electricity to HTSE (assumed 10 MWe),10.0,9.147,MWe,Headline fuel-factory allocation is constrained by methanol floor and HTSE heat,run_tests scenario S2_30MW_FUELDISP
+"M5 Methanol output (phase-1 target 10,600 t/yr)",10600.0,9955.441,t/year,Headline 30 MWth case enforces scaled minimum production floor,run_tests scenario S2_30MW_FUELDISP
+M3 Demo cycle efficiency claim (~45%),45.0,32.847,%,Current integrated headline at 40C ambient is lower than optimistic claim,results from coupled model S2_30MW_FUELDISP
+M6 conversion check (6.36 gCO2/kWh),1.767,1766.667,kgCO2/TJ,Corrected g/kWh to kg/TJ conversion,built-in conversion utility check
+"Boundary sensitivity reference FoM (operational-only, 30 MWth)",,3014.786,tCO2/MWth/year,"Retained as accounting sensitivity, not headline",run_tests scenario S0_BASE_30MW_OPONLY
