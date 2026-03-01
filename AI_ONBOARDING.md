@@ -50,10 +50,10 @@ Use this as the first file for any new AI session.
    - list changed files + commit hash
 
 ## Canonical Scenario IDs
-- `S0_BASE_30MW_OPONLY` (headline)
-- `S1_36MW_OPONLY` (sensitivity)
-- `S2_30MW_FUELDISP` (sensitivity)
-- `S3_36MW_FUELDISP` (optional sensitivity)
+- `S2_30MW_FUELDISP` (headline)
+- `S3_36MW_FUELDISP` (power sensitivity)
+- `S0_BASE_30MW_OPONLY` (boundary sensitivity)
+- `S1_36MW_OPONLY` (boundary sensitivity)
 
 ## Canonical Output Pack
 - Location: `outputs/canonical_pack/`
@@ -71,7 +71,7 @@ Use this as the first file for any new AI session.
 
 ## Team Scope Locks
 1. HTGR-only scope.
-2. Headline FoM uses `operational_only`.
+2. Headline FoM uses `fuel_displacement` with `fuel_factory` concept mode.
 3. Baseline is `30 MWth`.
 4. `36 MWth` is sensitivity only.
 

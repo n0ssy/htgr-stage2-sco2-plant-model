@@ -71,7 +71,8 @@ Assessment: valid HTGR-only framing (headline independent of HRS design), with c
 1. Allocation constrained by electricity and heat balances.
 2. HTSE heat requirement enforced when enabled.
 3. CO2 accounting supports `operational_only` and `fuel_displacement`.
-4. Unit conversion checks embedded for reporting integrity.
+4. Fuel-factory headline behavior is enforced with a hard methanol floor constraint.
+5. Unit conversion checks embedded for reporting integrity.
 
 Code anchor:
 1. `/Users/stefioannidis/Documents/UCL/Y2/RR/copies/Corrected_Approach/sco2_plant/process/allocation.py`
@@ -139,10 +140,10 @@ Canonical sources:
 2. "Boundary-driven reactor model provides transient safety simulation outputs." (false)
 3. "Manual teammate tables are equivalent to canonical exports." (false)
 4. "Coupled cooler sensitivity can be promoted to headline without passing strict closure gates." (false)
+5. "Fuel-factory headline can be claimed without enforcing methanol output constraints." (false)
 
 ## 7. Decision Summary
 
-1. Headline remains `S0_BASE_30MW_OPONLY` under `operational_only` boundary.
+1. Headline is `S2_30MW_FUELDISP` under `fuel_displacement` boundary with `fuel_factory` concept mode.
 2. Coupled cooler remains appendix sensitivity until all strict gates are satisfied in that mode.
 3. Report freeze is permitted only from gate-passing canonical pack outputs.
-
