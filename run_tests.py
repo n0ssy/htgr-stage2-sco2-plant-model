@@ -17,8 +17,18 @@ Generates:
 import sys
 import os
 import json
+import csv
+import re
 from datetime import datetime
 from pathlib import Path
+from typing import List, Dict
+import numpy as np
+
+try:
+    from pypdf import PdfReader
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
 
 try:
     import yaml
@@ -221,7 +231,11 @@ def get_assumptions() -> dict:
                 'description': 'Average grid emission factor for optional displaced electricity scenario'
             },
             'objective': 'max_CO2_net',
+            'co2_accounting_mode_headline': 'operational_only',
             'co2_boundary_mode_headline': 'operational_only',
+            'apply_neutrality_condition_default': True,
+            'fuel_emission_factor_kgco2_per_kg_default': 3.15,
+            'displacement_factor_default': 1.0,
             'enforce_htse_heat_constraint_default': True,
             'description': 'Constrained optimization to maximize net CO2 reduction under HTGR-only scope'
         }
@@ -233,6 +247,11 @@ def get_assumptions() -> dict:
 def run_full_plant_solve(
     T_ambient_C: float = 40.0,
     heat_rejection_mode: str = "fixed_boundary",
+    Q_thermal_MW: float = 30.0,
+    scenario_id: str = "S0_BASE_30MW_OPONLY",
+    baseline_or_sensitivity: str = "baseline",
+    source_assumptions_version: str = "v2",
+    cooling_aux_fraction: float = 0.01,
     verbose: bool = True,
 ) -> dict:
     """
@@ -303,7 +322,7 @@ def run_full_plant_solve(
             q_closure_tolerance=0.02,
             geometry=cooler_geometry,
         )
-        energy_tol = 0.02
+        energy_tol = 0.005
     else:
         cooler_config = DryCoolerConfig(
             eta_fan=0.70,
@@ -317,7 +336,7 @@ def run_full_plant_solve(
         energy_tol = 0.005
 
     plant_config = PlantConfig(
-        Q_thermal=30e6,
+        Q_thermal=Q_thermal_MW * 1e6,
         T_He_hot=1123.15,
         T_He_cold=668.15,
         P_He=4.0e6,
@@ -330,7 +349,7 @@ def run_full_plant_solve(
         energy_closure_tolerance=energy_tol,
         heat_rejection_mode=heat_rejection_mode,
         T_1_boundary_target=None,
-        cooling_aux_fraction=0.01,
+        cooling_aux_fraction=cooling_aux_fraction,
         headline_fom_mode="htgr_only",
     )
 
@@ -378,6 +397,10 @@ def run_full_plant_solve(
             "assumption_mode": result.assumption_mode,
             "headline_fom_mode": plant_config.headline_fom_mode,
             "energy_closure_tolerance_rel": plant_config.energy_closure_tolerance,
+            "scenario_id": scenario_id,
+            "baseline_or_sensitivity": baseline_or_sensitivity,
+            "source_assumptions_version": source_assumptions_version,
+            "reactor_basis_MWth": Q_thermal_MW,
         },
         "status": {
             "converged": result.converged,
@@ -485,11 +508,22 @@ def run_full_plant_solve(
 def run_co2_reduction_analysis(
     plant_result,
     Q_thermal: float = 30e6,
-    co2_boundary_mode: str = "operational_only",
+    co2_accounting_mode: str = "operational_only",
+    co2_boundary_mode: str = None,  # Legacy alias
     allow_grid_export: bool = False,
     grid_CO2_intensity: float = 400.0,
     enforce_htse_heat_constraint: bool = True,
     scenario_name: str = "headline_htgr_only",
+    scenario_id: str = "S0_BASE_30MW_OPONLY",
+    baseline_or_sensitivity: str = "baseline",
+    source_assumptions_version: str = "v2",
+    apply_neutrality_condition: bool = True,
+    fuel_emission_factor_kgco2_per_kg: float = 3.15,
+    displacement_factor: float = 1.0,
+    dac_heat_intensity: float = 1750.0,
+    dac_elec_intensity: float = 250.0,
+    htse_elec_intensity: float = 37.5,
+    htse_heat_intensity: float = 6.5,
     verbose: bool = True,
 ) -> dict:
     """
@@ -514,24 +548,36 @@ def run_co2_reduction_analysis(
     else:
         T_waste = 463.15  # Fallback: 190°C
 
+    mode = co2_accounting_mode
+    if co2_boundary_mode is not None and mode == "operational_only":
+        mode = co2_boundary_mode
+
     # Configure process allocation
     alloc_config = AllocationConfig(
         objective=AllocationObjective.MAX_CO2_NET,
         grid_CO2_intensity=grid_CO2_intensity,
         allow_grid_export=allow_grid_export,
         max_grid_export_MW=10.0 if allow_grid_export else 0.0,
-        co2_boundary_mode=co2_boundary_mode,
+        co2_accounting_mode=mode,
+        co2_boundary_mode=mode,
         enforce_htse_heat_constraint=enforce_htse_heat_constraint,
+        apply_neutrality_condition=apply_neutrality_condition,
+        fuel_emission_factor_kgco2_per_kg=fuel_emission_factor_kgco2_per_kg,
+        displacement_factor=displacement_factor,
+        allocation_auxiliary_power_W=0.0,
         scenario_name=scenario_name,
+        scenario_id=scenario_id,
+        baseline_or_sensitivity=baseline_or_sensitivity,
+        source_assumptions_version=source_assumptions_version,
         dac_config=DACConfig(
-            heat_intensity=1750.0,  # kWh_th/t_CO2
-            elec_intensity=250.0,   # kWh_e/t_CO2
+            heat_intensity=dac_heat_intensity,  # kWh_th/t_CO2
+            elec_intensity=dac_elec_intensity,   # kWh_e/t_CO2
             T_regen_min=373.15,     # 100°C
             capacity_factor=0.90
         ),
         htse_config=HTSEConfig(
-            elec_intensity=37.5,    # kWh_e/kg_H2
-            heat_intensity=6.5,     # kWh_th/kg_H2
+            elec_intensity=htse_elec_intensity,    # kWh_e/kg_H2
+            heat_intensity=htse_heat_intensity,     # kWh_th/kg_H2
             capacity_factor=0.90
         ),
         methanol_config=MethanolConfig(
@@ -554,10 +600,20 @@ def run_co2_reduction_analysis(
         'metadata': {
             'timestamp': datetime.now().isoformat(),
             'description': 'HTGR-only CO2 reduction analysis with explicit boundary assumptions',
-            'co2_boundary_mode': co2_boundary_mode,
+            'co2_accounting_mode': mode,
+            'co2_boundary_mode': mode,
             'allow_grid_export': allow_grid_export,
             'enforce_htse_heat_constraint': enforce_htse_heat_constraint,
             'scenario_name': scenario_name,
+            'scenario_id': scenario_id,
+            'baseline_or_sensitivity': baseline_or_sensitivity,
+            'source_assumptions_version': source_assumptions_version,
+            'conversion_checks_passed': alloc_result.co2_accounting.conversion_checks_passed,
+            'boundary_statement': (
+                'Headline operational-only boundary'
+                if mode == 'operational_only'
+                else 'Sensitivity fuel-displacement boundary'
+            ),
         },
 
         'plant_inputs': {
@@ -591,13 +647,17 @@ def run_co2_reduction_analysis(
             'avoided_grid_displacement': alloc_result.co2_accounting.CO2_avoided_grid_t_yr,
             'captured_DAC': alloc_result.co2_accounting.CO2_captured_DAC_t_yr,
             'embodied_in_products': alloc_result.co2_accounting.CO2_embodied_t_yr,
+            'displaced_fossil': alloc_result.co2_accounting.co2_displaced_fossil_t_yr,
+            'reemitted_synthetic': alloc_result.co2_accounting.co2_reemitted_synthetic_t_yr,
             'NET_REDUCTION': alloc_result.co2_accounting.CO2_net_reduction_t_yr
         },
 
         'figures_of_merit': {
             'CO2_reduction_t_per_MWth_per_yr': alloc_result.co2_accounting.CO2_per_MWth_yr,
             'specific_CO2_reduction_kg_per_kWh_th': alloc_result.co2_accounting.specific_CO2_reduction,
+            'co2_accounting_mode': alloc_result.co2_accounting.co2_accounting_mode,
             'co2_boundary_mode': alloc_result.co2_accounting.co2_boundary_mode,
+            'conversion_checks_passed': alloc_result.co2_accounting.conversion_checks_passed,
             'description': 'Primary FOM: tonnes CO2 reduced per year per MW thermal input'
         },
 
@@ -648,6 +708,550 @@ def run_co2_reduction_analysis(
         print(f"  Cooling Aux Ratio:        {W_fan/Q_reject*100:.2f}% of rejected heat")
 
     return co2_results
+
+
+def _write_csv(path: Path, rows: List[Dict], fieldnames: List[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+def _extract_owner_from_filename(name: str) -> str:
+    m = re.search(r"\b(M\d+)\b", name)
+    if m:
+        return m.group(1)
+    if "Safety" in name:
+        return "M3"
+    if "Process" in name:
+        return "M5"
+    if "Research" in name:
+        return "M6"
+    return "TEAM"
+
+
+def build_teammate_reconciliation_table(
+    teammate_dir: Path,
+    output_csv: Path,
+) -> None:
+    """Extract numeric teammate assumptions with explicit units from PDF sources."""
+    rows: List[Dict] = []
+    unit_pattern = re.compile(
+        r"(MWth|MWe|MW|kWh_th/t_CO2|kWh_e/t_CO2|kWh_e/kg_H2|kWh_th/kg_H2|tCO2/year|tonnes?\s+CO2\s+per\s+year|kgCO2e/TJ|g\s*CO2e?/kWh|°C|%)",
+        flags=re.IGNORECASE,
+    )
+    value_pattern = re.compile(r"\b\d+(?:[.,]\d+)?\b")
+
+    if not PDF_AVAILABLE:
+        _write_csv(
+            output_csv,
+            [{
+                "parameter": "PDF parsing unavailable",
+                "value": "",
+                "units": "",
+                "source_doc": "pypdf not installed",
+                "owner": "SYSTEM",
+                "scenario": "UNMAPPED",
+                "status": "blocked",
+            }],
+            ["parameter", "value", "units", "source_doc", "owner", "scenario", "status"],
+        )
+        return
+
+    for pdf_path in sorted(teammate_dir.glob("*.pdf")):
+        if pdf_path.name.startswith("M1 "):
+            # M1 is intentionally excluded from reconciliation scope.
+            continue
+        owner = _extract_owner_from_filename(pdf_path.name)
+        try:
+            reader = PdfReader(str(pdf_path))
+        except Exception:
+            continue
+        for page in reader.pages:
+            text = page.extract_text() or ""
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                unit_match = unit_pattern.search(line)
+                if not unit_match:
+                    continue
+                value_match = value_pattern.search(line.replace(",", ""))
+                if not value_match:
+                    continue
+                lower = line.lower()
+                if "36" in lower and "mw" in lower:
+                    scenario = "S1_36MW_OPONLY"
+                elif "30" in lower and "mw" in lower:
+                    scenario = "S0_BASE_30MW_OPONLY"
+                else:
+                    scenario = "S0_BASE_30MW_OPONLY"
+                rows.append(
+                    {
+                        "parameter": line[:140],
+                        "value": value_match.group(0),
+                        "units": unit_match.group(0),
+                        "source_doc": str(pdf_path),
+                        "owner": owner,
+                        "scenario": scenario,
+                        "status": "extracted",
+                    }
+                )
+
+    # Deduplicate exact duplicates.
+    dedup = []
+    seen = set()
+    for row in rows:
+        key = (row["parameter"], row["source_doc"])
+        if key in seen:
+            continue
+        seen.add(key)
+        dedup.append(row)
+
+    _write_csv(
+        output_csv,
+        dedup,
+        ["parameter", "value", "units", "source_doc", "owner", "scenario", "status"],
+    )
+
+
+def build_assumptions_register(output_csv: Path) -> None:
+    rows = [
+        {
+            "parameter": "Baseline reactor thermal power",
+            "value": 30.0,
+            "units": "MWth",
+            "source_doc": "source docs/Rolls Royce Fission Energy Project 25-26.pdf",
+            "owner": "Model",
+            "scenario": "S0_BASE_30MW_OPONLY",
+            "status": "locked",
+        },
+        {
+            "parameter": "Sensitivity reactor thermal power",
+            "value": 36.0,
+            "units": "MWth",
+            "source_doc": "teammate_resources/Presentation Demo (1).pdf",
+            "owner": "Model",
+            "scenario": "S1_36MW_OPONLY",
+            "status": "sensitivity_only",
+        },
+        {
+            "parameter": "Headline accounting mode",
+            "value": "operational_only",
+            "units": "mode",
+            "source_doc": "Locked decision",
+            "owner": "Model",
+            "scenario": "S0_BASE_30MW_OPONLY",
+            "status": "locked",
+        },
+        {
+            "parameter": "Fuel-displacement accounting mode",
+            "value": "fuel_displacement",
+            "units": "mode",
+            "source_doc": "Locked decision",
+            "owner": "Model",
+            "scenario": "S2_30MW_FUELDISP",
+            "status": "sensitivity_only",
+        },
+        {
+            "parameter": "Energy closure tolerance",
+            "value": 0.005,
+            "units": "relative",
+            "source_doc": "cycle/sco2_cycle.py + cycle/coupled_solver.py + run_tests.py",
+            "owner": "Model",
+            "scenario": "ALL",
+            "status": "locked",
+        },
+        {
+            "parameter": "Fuel emission factor",
+            "value": 3.15,
+            "units": "kgCO2/kg_fuel",
+            "source_doc": "teammate_resources/Prim's Initial Research M6.pdf",
+            "owner": "Model",
+            "scenario": "S2_30MW_FUELDISP",
+            "status": "assumption",
+        },
+    ]
+    _write_csv(
+        output_csv,
+        rows,
+        ["parameter", "value", "units", "source_doc", "owner", "scenario", "status"],
+    )
+
+
+def run_stage2_scenarios(output_root: Path) -> Dict[str, Dict]:
+    scenarios = [
+        {
+            "scenario_id": "S0_BASE_30MW_OPONLY",
+            "Q_thermal_MW": 30.0,
+            "co2_accounting_mode": "operational_only",
+            "baseline_or_sensitivity": "baseline",
+        },
+        {
+            "scenario_id": "S1_36MW_OPONLY",
+            "Q_thermal_MW": 36.0,
+            "co2_accounting_mode": "operational_only",
+            "baseline_or_sensitivity": "sensitivity",
+        },
+        {
+            "scenario_id": "S2_30MW_FUELDISP",
+            "Q_thermal_MW": 30.0,
+            "co2_accounting_mode": "fuel_displacement",
+            "baseline_or_sensitivity": "sensitivity",
+        },
+        {
+            "scenario_id": "S3_36MW_FUELDISP",
+            "Q_thermal_MW": 36.0,
+            "co2_accounting_mode": "fuel_displacement",
+            "baseline_or_sensitivity": "sensitivity_optional",
+        },
+    ]
+
+    scenario_dir = output_root / "scenarios"
+    scenario_dir.mkdir(parents=True, exist_ok=True)
+
+    results = {}
+    for sc in scenarios:
+        plant_results, plant_result = run_full_plant_solve(
+            T_ambient_C=40.0,
+            heat_rejection_mode="fixed_boundary",
+            Q_thermal_MW=sc["Q_thermal_MW"],
+            scenario_id=sc["scenario_id"],
+            baseline_or_sensitivity=sc["baseline_or_sensitivity"],
+            source_assumptions_version="v2",
+            cooling_aux_fraction=0.01,
+            verbose=False,
+        )
+        co2_results = run_co2_reduction_analysis(
+            plant_result,
+            Q_thermal=sc["Q_thermal_MW"] * 1e6,
+            co2_accounting_mode=sc["co2_accounting_mode"],
+            scenario_name=sc["scenario_id"],
+            scenario_id=sc["scenario_id"],
+            baseline_or_sensitivity=sc["baseline_or_sensitivity"],
+            source_assumptions_version="v2",
+            apply_neutrality_condition=True,
+            fuel_emission_factor_kgco2_per_kg=3.15,
+            displacement_factor=1.0,
+            verbose=False,
+        )
+        combined = {
+            "scenario": sc,
+            "plant": plant_results,
+            "co2": co2_results,
+        }
+        results[sc["scenario_id"]] = combined
+        with open(scenario_dir / f"{sc['scenario_id']}.json", "w") as f:
+            json.dump(combined, f, indent=2)
+
+    return results
+
+
+def build_uncertainty_summary(
+    baseline_plant_result,
+    output_json: Path,
+    samples: int = 120,
+    seed: int = 20260301,
+) -> Dict[str, float]:
+    rng = np.random.default_rng(seed)
+    fom_values = []
+    for _ in range(samples):
+        dac_heat = float(np.clip(1750.0 * rng.normal(1.0, 0.08), 1300.0, 2300.0))
+        dac_elec = float(np.clip(250.0 * rng.normal(1.0, 0.08), 150.0, 400.0))
+        htse_elec = float(np.clip(37.5 * rng.normal(1.0, 0.07), 30.0, 50.0))
+        htse_heat = float(np.clip(6.5 * rng.normal(1.0, 0.10), 4.0, 9.0))
+        out = run_co2_reduction_analysis(
+            baseline_plant_result,
+            Q_thermal=30e6,
+            co2_accounting_mode="operational_only",
+            scenario_name="S0_BASE_30MW_OPONLY_UQ",
+            scenario_id="S0_BASE_30MW_OPONLY",
+            baseline_or_sensitivity="baseline",
+            source_assumptions_version="v2",
+            dac_heat_intensity=dac_heat,
+            dac_elec_intensity=dac_elec,
+            htse_elec_intensity=htse_elec,
+            htse_heat_intensity=htse_heat,
+            verbose=False,
+        )
+        fom_values.append(out["figures_of_merit"]["CO2_reduction_t_per_MWth_per_yr"])
+
+    arr = np.array(fom_values)
+    summary = {
+        "seed": seed,
+        "samples": samples,
+        "mean": float(np.mean(arr)),
+        "std": float(np.std(arr)),
+        "p10": float(np.percentile(arr, 10)),
+        "p50": float(np.percentile(arr, 50)),
+        "p90": float(np.percentile(arr, 90)),
+        "ci95_low": float(np.percentile(arr, 2.5)),
+        "ci95_high": float(np.percentile(arr, 97.5)),
+    }
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_json, "w") as f:
+        json.dump(summary, f, indent=2)
+    return summary
+
+
+def build_delta_table(
+    scenario_results: Dict[str, Dict],
+    output_csv: Path,
+) -> None:
+    s0 = scenario_results["S0_BASE_30MW_OPONLY"]
+    rows = [
+        {
+            "item": "M5 Net electric output (assumed 13.5 MWe)",
+            "old_value": 13.5,
+            "new_value": round(s0["plant"]["power_MW"]["W_net"], 3),
+            "units": "MWe",
+            "reason": "Replaced fixed assumption with solved baseline output",
+            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+        },
+        {
+            "item": "M5 Electricity to HTSE (assumed 10 MWe)",
+            "old_value": 10.0,
+            "new_value": round(s0["co2"]["allocation"]["W_to_HTSE_MW"], 3),
+            "units": "MWe",
+            "reason": "Allocation now constrained by modelled plant net power and HTSE heat",
+            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+        },
+        {
+            "item": "M5 Heat to DAC (assumed 5 MWth)",
+            "old_value": 5.0,
+            "new_value": round(s0["co2"]["allocation"]["Q_to_DAC_MW"], 3),
+            "units": "MWth",
+            "reason": "Replaced static split with optimized constrained allocation",
+            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+        },
+        {
+            "item": "M3 Demo cycle efficiency claim (~45%)",
+            "old_value": 45.0,
+            "new_value": round(s0["plant"]["efficiencies"]["eta_thermal_percent"], 3),
+            "units": "%",
+            "reason": "Current integrated baseline at 40C ambient is lower than optimistic claim",
+            "source": "results from coupled model baseline scenario",
+        },
+        {
+            "item": "M6 conversion check (6.36 gCO2/kWh)",
+            "old_value": 1.767,
+            "new_value": 1766.667,
+            "units": "kgCO2/TJ",
+            "reason": "Corrected g/kWh to kg/TJ conversion",
+            "source": "built-in conversion utility check",
+        },
+    ]
+    _write_csv(output_csv, rows, ["item", "old_value", "new_value", "units", "reason", "source"])
+
+
+def build_architecture_matrix(output_csv: Path) -> None:
+    rows = [
+        {
+            "block": "HTGR thermal source",
+            "implemented_in": "cycle/coupled_solver.py",
+            "governing_basis": "Q_thermal boundary with He in/out conditions",
+            "constraints": "T_He_return, energy_closure_rel",
+            "validation_anchor": "RR HTTR baseline references",
+            "known_limitations": "No transient LOFC or 2D unit-cell reactor model",
+        },
+        {
+            "block": "sCO2 cycle",
+            "implemented_in": "cycle/sco2_cycle.py",
+            "governing_basis": "Recompression Brayton with segmented recuperators",
+            "constraints": "critical margins, pinch, TIT cap, E03 closure",
+            "validation_anchor": "validation/dostal_validation.py",
+            "known_limitations": "No turbomachinery map calibration",
+        },
+        {
+            "block": "Allocation (DAC/HTSE/grid)",
+            "implemented_in": "process/allocation.py",
+            "governing_basis": "SLSQP constrained allocation",
+            "constraints": "electric + heat + HTSE steam demand",
+            "validation_anchor": "scenario matrix and allocation feasibility flags",
+            "known_limitations": "No dynamic dispatch profile",
+        },
+        {
+            "block": "CO2 accounting boundary",
+            "implemented_in": "process/allocation.py",
+            "governing_basis": "operational_only headline + fuel_displacement sensitivity",
+            "constraints": "unit conversion checks and scenario metadata tags",
+            "validation_anchor": "conversion round-trip checks",
+            "known_limitations": "Fuel displacement depends on assumed reference EF",
+        },
+    ]
+    _write_csv(
+        output_csv,
+        rows,
+        ["block", "implemented_in", "governing_basis", "constraints", "validation_anchor", "known_limitations"],
+    )
+
+
+def build_limitations_register(output_csv: Path) -> None:
+    rows = [
+        {
+            "id": "LIM-001",
+            "limitation": "Reactor-side physics represented as boundary condition, not transient core model",
+            "impact": "Safety-transient conclusions are literature-benchmarked, not simulated",
+            "mitigation_next_step": "Add 2D unit-cell surrogate + transient benchmark loop",
+        },
+        {
+            "id": "LIM-002",
+            "limitation": "Fuel-displacement accounting depends on assumed fuel EF and displacement factor",
+            "impact": "Sensitivity FoM spread can be significant",
+            "mitigation_next_step": "Calibrate with RR-preferred accounting boundary and factors",
+        },
+        {
+            "id": "LIM-003",
+            "limitation": "Coupled-cooler mode retained as sensitivity, not headline",
+            "impact": "Headline excludes detailed heat-rejection design dependence",
+            "mitigation_next_step": "Keep fixed-boundary headline and report coupled mode in appendix",
+        },
+    ]
+    _write_csv(output_csv, rows, ["id", "limitation", "impact", "mitigation_next_step"])
+
+
+def build_equation_sheet(output_md: Path) -> None:
+    output_md.parent.mkdir(parents=True, exist_ok=True)
+    text = """# Equation Sheet (Scenario-Tagged)
+
+## Allocation Constraints
+- Electricity: `W_HTSE + W_DAC + W_grid <= W_allocatable`
+- Heat: `Q_DAC + Q_HTSE <= Q_waste_available`
+- HTSE heat: `Q_HTSE = W_HTSE * (HTSE_heat_intensity / HTSE_elec_intensity)` when enforced.
+
+## CO2 Accounting
+- Operational-only mode: `CO2_net = CO2_DAC + CO2_grid`
+- Fuel-displacement mode: `CO2_net = CO2_displaced_fossil + CO2_grid - CO2_embodied - (CO2_reemitted_synthetic if neutrality disabled)`
+
+## Unit Conversions
+- `kgCO2/TJ = gCO2/kWh * 277.7777778`
+- `gCO2/kWh = kgCO2/TJ / 277.7777778`
+"""
+    with open(output_md, "w") as f:
+        f.write(text)
+
+
+def build_constraint_margin_table(
+    scenario_results: Dict[str, Dict],
+    output_csv: Path,
+) -> None:
+    rows = []
+    for scenario_id, payload in scenario_results.items():
+        margins = payload["plant"]["margins"]
+        rows.append(
+            {
+                "scenario_id": scenario_id,
+                "energy_closure_margin": margins.get("energy_closure"),
+                "pinch_IHX_margin_K": margins.get("pinch_IHX_min"),
+                "pinch_HTR_margin_K": margins.get("pinch_HTR_min"),
+                "pinch_LTR_margin_K": margins.get("pinch_LTR_min"),
+                "W_net_W": margins.get("W_net"),
+                "T_He_return_margin_K": margins.get("T_He_return"),
+            }
+        )
+    _write_csv(
+        output_csv,
+        rows,
+        ["scenario_id", "energy_closure_margin", "pinch_IHX_margin_K", "pinch_HTR_margin_K", "pinch_LTR_margin_K", "W_net_W", "T_He_return_margin_K"],
+    )
+
+
+def report_gate_check(scenario_results: Dict[str, Dict]) -> None:
+    required_meta = {"scenario_id", "baseline_or_sensitivity", "source_assumptions_version"}
+    for scenario_id, payload in scenario_results.items():
+        plant_meta = payload["plant"]["metadata"]
+        co2_meta = payload["co2"]["metadata"]
+        if not required_meta.issubset(set(plant_meta.keys())):
+            raise RuntimeError(f"Scenario {scenario_id} missing required plant metadata tags")
+        if not required_meta.issubset(set(co2_meta.keys())):
+            raise RuntimeError(f"Scenario {scenario_id} missing required CO2 metadata tags")
+
+
+def generate_stage2_canonical_pack(output_dir: str = None) -> Dict[str, Dict]:
+    base = Path(output_dir or os.path.dirname(os.path.abspath(__file__)))
+    output_root = base / "outputs" / "canonical_pack"
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    scenario_results = run_stage2_scenarios(output_root)
+    report_gate_check(scenario_results)
+
+    # Use S0 plant state as baseline for uncertainty around process intensities.
+    _, baseline_plant_result = run_full_plant_solve(
+        T_ambient_C=40.0,
+        heat_rejection_mode="fixed_boundary",
+        Q_thermal_MW=30.0,
+        scenario_id="S0_BASE_30MW_OPONLY",
+        baseline_or_sensitivity="baseline",
+        source_assumptions_version="v2",
+        cooling_aux_fraction=0.01,
+        verbose=False,
+    )
+    uncertainty = build_uncertainty_summary(
+        baseline_plant_result,
+        output_root / "uncertainty_summary.json",
+    )
+
+    fom_rows = []
+    for scenario_id, payload in scenario_results.items():
+        fom_rows.append(
+            {
+                "scenario_id": scenario_id,
+                "baseline_or_sensitivity": payload["scenario"]["baseline_or_sensitivity"],
+                "co2_accounting_mode": payload["scenario"]["co2_accounting_mode"],
+                "Q_thermal_MWth": payload["scenario"]["Q_thermal_MW"],
+                "W_net_MWe": payload["plant"]["power_MW"]["W_net"],
+                "eta_net_percent": payload["plant"]["efficiencies"]["eta_net_percent"],
+                "FOM_tCO2_per_MWth_yr": payload["co2"]["figures_of_merit"]["CO2_reduction_t_per_MWth_per_yr"],
+                "UQ_p50": uncertainty["p50"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
+                "UQ_p90": uncertainty["p90"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
+                "UQ_ci95_low": uncertainty["ci95_low"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
+                "UQ_ci95_high": uncertainty["ci95_high"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
+            }
+        )
+    _write_csv(
+        output_root / "fom_summary_with_uncertainty.csv",
+        fom_rows,
+        [
+            "scenario_id",
+            "baseline_or_sensitivity",
+            "co2_accounting_mode",
+            "Q_thermal_MWth",
+            "W_net_MWe",
+            "eta_net_percent",
+            "FOM_tCO2_per_MWth_yr",
+            "UQ_p50",
+            "UQ_p90",
+            "UQ_ci95_low",
+            "UQ_ci95_high",
+        ],
+    )
+
+    teammate_dir = base.parent / "teammate_resources"
+    build_teammate_reconciliation_table(
+        teammate_dir=teammate_dir,
+        output_csv=output_root / "teammate_number_reconciliation.csv",
+    )
+    build_assumptions_register(output_root / "assumptions_register.csv")
+    build_delta_table(scenario_results, output_root / "teammate_delta_table.csv")
+    build_architecture_matrix(output_root / "architecture_compliance_matrix.csv")
+    build_limitations_register(output_root / "limitations_register.csv")
+    build_equation_sheet(output_root / "equation_sheet.md")
+    build_constraint_margin_table(scenario_results, output_root / "constraint_margin_table.csv")
+
+    with open(output_root / "canonical_pack_index.json", "w") as f:
+        json.dump(
+            {
+                "generated_at": datetime.now().isoformat(),
+                "headline_scenario": "S0_BASE_30MW_OPONLY",
+                "scenarios": sorted(scenario_results.keys()),
+                "output_root": str(output_root),
+            },
+            f,
+            indent=2,
+        )
+    return scenario_results
 
 
 def write_output_files(output_dir: str = None):
@@ -842,6 +1446,14 @@ def main():
 
     write_output_files()
 
+    print("\n" + "=" * 70)
+    print("GENERATING STAGE-2 CANONICAL SYNC PACK")
+    print("=" * 70)
+    scenario_results = generate_stage2_canonical_pack()
+    print("Canonical scenarios generated:")
+    for sid in sorted(scenario_results.keys()):
+        print(f"  - {sid}")
+
     # Summary
     print("\n" + "#" * 70)
     print("#  TEST SUMMARY")
@@ -849,6 +1461,7 @@ def main():
     print(f"\n  Test 1 (Dostal Validation):     {'PASS' if dostal_passed else 'FAIL'}")
     print(f"  Test 2 (HTGR Headline Solve):   {'PASS' if plant_feasible else 'FAIL'}")
     print(f"  Test 3 (CO2 Reduction):         {'PASS' if co2_positive else 'FAIL'}")
+    print("  Test 4 (Canonical Pack Tags):   PASS")
 
     # Return overall pass/fail
     overall_pass = dostal_passed and plant_feasible and co2_positive
