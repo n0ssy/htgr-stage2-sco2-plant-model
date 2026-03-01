@@ -11,6 +11,9 @@ This repository contains the HTGR-only Stage-2 modelling workflow for:
 Primary onboarding entry point:
 - `AI_ONBOARDING.md`
 
+Single canonical project context:
+- `docs/canonical/CANONICAL_PROJECT_CONTEXT.md`
+
 Operational coordination docs:
 - `SESSION_HANDBOOK.md`
 - `TASKS_TBC.md`
@@ -30,6 +33,13 @@ Current locked defaults:
 
 Generated artifacts live in:
 - `outputs/canonical_pack/`
+
+## Document Hygiene
+
+Legacy context and draft references are archived under:
+- `docs/archive/`
+
+Only `docs/canonical/CANONICAL_PROJECT_CONTEXT.md` should be treated as the active context reference.
 
 Key files:
 - `outputs/canonical_pack/canonical_pack_index.json`

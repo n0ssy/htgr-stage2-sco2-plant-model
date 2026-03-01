@@ -6,6 +6,7 @@ Branch: `codex/htgr-stage2-sync`
 1. `d29464a` - `chore: bootstrap htgr model repository snapshot`
 2. `3309cef` - `feat: add scenario-tagged canonical sync pipeline and report gates`
 3. `8bdded9` - `docs: add parallel session handoff ledger and planning protocol`
+4. `pending` - `docs: consolidate canonical context and archive legacy references`
 
 ## Suggested PR Split
 1. **PR-A Bootstrap**
@@ -17,6 +18,9 @@ Branch: `codex/htgr-stage2-sync`
 3. **PR-C Parallel Session Ops Docs**
    - Commit: `8bdded9`
    - Purpose: handoff standards, task queue, planning workflow.
+4. **PR-D Canonical Context Cleanup**
+   - Commit: `pending`
+   - Purpose: single canonical context doc, archive clutter, keep parser compatibility.
 
 ## If/When Remote Is Added
 ```bash
