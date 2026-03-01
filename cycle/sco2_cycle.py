@@ -302,8 +302,9 @@ class SCO2RecompressionCycle:
             # Initial guess for state 3 (merge point)
             T_3_guess = T_2 + 50  # Guess merge temp higher than MC outlet
 
-            max_iter = 100
-            tol = 0.1  # K
+            # Runtime-oriented limits for robust convergence without long stalls.
+            max_iter = 40
+            tol = 0.2  # K
 
             T_3 = T_3_guess
             converged = False
