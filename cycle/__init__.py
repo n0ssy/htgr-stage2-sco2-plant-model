@@ -7,3 +7,10 @@ from .coupled_solver import (
     FeasibilityReport,
     ConstraintViolation
 )
+from .operating_point_search import (
+    SearchBounds,
+    SearchConfig,
+    SearchCandidate,
+    SearchOutcome,
+    search_operating_point,
+)
