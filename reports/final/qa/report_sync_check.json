@@ -1,0 +1,32 @@
+{
+  "overall_pass": true,
+  "checks": {
+    "placeholder_elimination": {
+      "pass": true,
+      "found_patterns": []
+    },
+    "headline_literals": {
+      "pass": true,
+      "missing": []
+    },
+    "boundary_consistency": {
+      "pass": true,
+      "operational_only_present": true,
+      "fuel_displacement_present": true
+    },
+    "historical_36mw_guard": {
+      "pass": true,
+      "count": 4
+    },
+    "numbers_lock_table": {
+      "pass": true,
+      "row_count": 44,
+      "missing_columns": []
+    },
+    "canonical_feasibility_statement": {
+      "pass": true
+    }
+  },
+  "report_path": "/Users/mts/Desktop/RollsRoyce/htgr-stage2-sco2-plant-model/reports/final/UCL_Group3_Final_Report_Draft_v2.md",
+  "numbers_lock_path": "/Users/mts/Desktop/RollsRoyce/htgr-stage2-sco2-plant-model/reports/final/qa/numbers_lock_table.csv"
+}

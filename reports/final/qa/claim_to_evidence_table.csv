@@ -1,0 +1,23 @@
+claim_text,section,evidence_type,source,reproducible_in_branch
+"Headline scenario is S0_BASE_30MW_OPONLY",1,output,results_baseline.json metadata/scenario_id,yes
+"Headline basis is 30.0 MWth",1,output,results_baseline.json heat_duties_MW/Q_thermal,yes
+"Headline net electrical output is 9.939 MWe",1|6.1,output,results_baseline.json power_MW/W_net,yes
+"Primary FoM is 1482.3 tCO2/MWth/year",1|6.2,output,co2_reduction_results.json figures_of_merit/CO2_reduction_t_per_MWth_per_yr,yes
+"Operational-only boundary is used for main text",1|4.3,code+output,process/allocation.py + co2_reduction_results.json metadata/co2_accounting_mode,yes
+"All four canonical scenarios are feasible and converged",5|6.3,output,outputs/canonical_pack/scenarios/*.json plant/status,yes
+"Cycle validation gate passes Dostal-style check",5,output,run_tests.py output + validation/dostal_validation.py,yes
+"Thermal efficiency reported as 33.90%",6.1,output,results_baseline.json efficiencies/eta_thermal_percent,yes
+"Net efficiency reported as 33.13%",6.1,output,results_baseline.json efficiencies/eta_net_percent,yes
+"Plant energy closure is 0.435% (<0.5%)",5|6.1,output,results_baseline.json status/energy_closure_rel,yes
+"IHX/HTR/LTR pinch margins are positive",5|6.1,output,results_baseline.json margins/pinch_*_min,yes
+"Helium return temperature margin is positive",5|6.1,output,results_baseline.json margins/T_He_return_margin_K,yes
+"Operational-only net reduction equals DAC plus grid terms",4.3,code,process/allocation.py _net_co2_reduction,yes
+"Grid export is zero in headline case",3|6.2,output,co2_reduction_results.json allocation/W_to_grid_MW,yes
+"Hydrogen output is 627.3 t/year",6.2,output,co2_reduction_results.json production_rates/H2_produced_t_yr,yes
+"Methanol output is 3245.3 t/year",6.2,output,co2_reduction_results.json production_rates/MeOH_produced_t_yr,yes
+"UQ mean/p10/p50/p90 and CI95 reported",6.2,output,outputs/canonical_pack/uncertainty_summary.json,yes
+"36 MWth appears only as sensitivity/historical context",1|6.3,text-governance,UCL_Group3_Final_Report_Draft_v2.md,yes
+"Defence-in-Depth framing follows IAEA",7,literature,IAEA INSAG-10,external
+"TRISO barrier and RCCS passive safety claims",7,literature,IAEA/INL/GIF sources listed in references,external
+"P-LOFC and D-LOFC peak temperatures are external-workstream figures",7,external-workstream,Section 7 provenance statement in report draft,external
+"Coupled-cooler infeasibility is sensitivity-only, not headline gate",5|9,output+method,run_tests.py test flow and latest run output,yes
