@@ -1,6 +1,6 @@
 # Session Handoff Handbook (Parallel AI Workflow)
 
-This file is the entry point for any new AI session working in this repo.
+Primary entry point is now `AI_ONBOARDING.md`. This file remains the operational policy reference.
 
 ## Purpose
 - Keep multiple AI sessions synchronized.
@@ -26,15 +26,16 @@ This file is the entry point for any new AI session working in this repo.
 - `36 MWth` is sensitivity only.
 
 ## Session Startup Checklist
-1. Read this file.
-2. Read `TASKS_TBC.md`.
-3. Claim a task in `PARALLEL_SESSION_LEDGER.md`.
-4. Confirm no overlap with active sessions.
-5. If task is major:
+1. Read `AI_ONBOARDING.md`.
+2. Read this file.
+3. Read `TASKS_TBC.md`.
+4. Claim a task in `PARALLEL_SESSION_LEDGER.md`.
+5. Confirm no overlap with active sessions.
+6. If task is major:
    - run research,
    - draft a plan section in the ledger,
    - only then implement.
-6. Commit changes with modular scope and clear messages.
+7. Commit changes with modular scope and clear messages.
 
 ## Session Close Checklist
 1. Update `TASKS_TBC.md` status and notes.
