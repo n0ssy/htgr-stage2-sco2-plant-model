@@ -53,6 +53,29 @@ from process.allocation import (
 )
 
 
+HEADLINE_SCENARIO_ID = "S2_30MW_FUELDISP"
+HEADLINE_CO2_ACCOUNTING_MODE = "fuel_displacement"
+
+
+def _alternate_co2_mode(mode: str) -> str:
+    return "operational_only" if mode == "fuel_displacement" else "fuel_displacement"
+
+
+def _scenario_for_mode(mode: str, q_thermal_mw: float = 30.0) -> str:
+    q = float(q_thermal_mw)
+    if q == 30.0:
+        return "S2_30MW_FUELDISP" if mode == "fuel_displacement" else "S0_BASE_30MW_OPONLY"
+    if q == 36.0:
+        return "S3_36MW_FUELDISP" if mode == "fuel_displacement" else "S1_36MW_OPONLY"
+    raise ValueError(f"Unsupported q_thermal_mw for canonical scenario mapping: {q_thermal_mw}")
+
+
+def _headline_baseline_label(scenario_id: str, default_label: str) -> str:
+    if scenario_id == HEADLINE_SCENARIO_ID:
+        return "baseline"
+    return "sensitivity" if default_label == "baseline" else default_label
+
+
 def get_assumptions() -> dict:
     """
     Collect all assumptions and default values used in the simulation.
@@ -232,8 +255,8 @@ def get_assumptions() -> dict:
                 'description': 'Average grid emission factor for optional displaced electricity scenario'
             },
             'objective': 'max_CO2_net',
-            'co2_accounting_mode_headline': 'operational_only',
-            'co2_boundary_mode_headline': 'operational_only',
+            'co2_accounting_mode_headline': HEADLINE_CO2_ACCOUNTING_MODE,
+            'co2_boundary_mode_headline': HEADLINE_CO2_ACCOUNTING_MODE,
             'apply_neutrality_condition_default': True,
             'fuel_emission_factor_kgco2_per_kg_default': 3.15,
             'displacement_factor_default': 1.0,
@@ -358,7 +381,7 @@ def run_full_plant_solve(
     T_ambient_C: float = 40.0,
     heat_rejection_mode: str = "fixed_boundary",
     Q_thermal_MW: float = 30.0,
-    scenario_id: str = "S0_BASE_30MW_OPONLY",
+    scenario_id: str = HEADLINE_SCENARIO_ID,
     baseline_or_sensitivity: str = "baseline",
     source_assumptions_version: str = "v2",
     cooling_aux_fraction: float = 0.01,
@@ -801,13 +824,13 @@ def run_full_plant_solve(
 def run_co2_reduction_analysis(
     plant_result,
     Q_thermal: float = 30e6,
-    co2_accounting_mode: str = "operational_only",
+    co2_accounting_mode: str = HEADLINE_CO2_ACCOUNTING_MODE,
     co2_boundary_mode: str = None,  # Legacy alias
     allow_grid_export: bool = False,
     grid_CO2_intensity: float = 400.0,
     enforce_htse_heat_constraint: bool = True,
     scenario_name: str = "headline_htgr_only",
-    scenario_id: str = "S0_BASE_30MW_OPONLY",
+    scenario_id: str = HEADLINE_SCENARIO_ID,
     baseline_or_sensitivity: str = "baseline",
     source_assumptions_version: str = "v2",
     apply_neutrality_condition: bool = True,
@@ -842,7 +865,7 @@ def run_co2_reduction_analysis(
         T_waste = 463.15  # Fallback: 190°C
 
     mode = co2_accounting_mode
-    if co2_boundary_mode is not None and mode == "operational_only":
+    if co2_boundary_mode is not None:
         mode = co2_boundary_mode
 
     # Configure process allocation
@@ -903,9 +926,9 @@ def run_co2_reduction_analysis(
             'source_assumptions_version': source_assumptions_version,
             'conversion_checks_passed': alloc_result.co2_accounting.conversion_checks_passed,
             'boundary_statement': (
-                'Headline operational-only boundary'
-                if mode == 'operational_only'
-                else 'Sensitivity fuel-displacement boundary'
+                f"Headline {mode} boundary"
+                if mode == HEADLINE_CO2_ACCOUNTING_MODE
+                else f"Sensitivity {mode} boundary"
             ),
         },
 
@@ -1076,11 +1099,11 @@ def build_teammate_reconciliation_table(
                     continue
                 lower = line.lower()
                 if "36" in lower and "mw" in lower:
-                    scenario = "S1_36MW_OPONLY"
+                    scenario = "S3_36MW_FUELDISP" if ("fuel" in lower or "disp" in lower) else "S1_36MW_OPONLY"
                 elif "30" in lower and "mw" in lower:
-                    scenario = "S0_BASE_30MW_OPONLY"
+                    scenario = "S2_30MW_FUELDISP" if ("fuel" in lower or "disp" in lower) else "S0_BASE_30MW_OPONLY"
                 else:
-                    scenario = "S0_BASE_30MW_OPONLY"
+                    scenario = HEADLINE_SCENARIO_ID
                 rows.append(
                     {
                         "parameter": line[:140],
@@ -1118,7 +1141,7 @@ def build_assumptions_register(output_csv: Path) -> None:
             "units": "MWth",
             "source_doc": "source docs/Rolls Royce Fission Energy Project 25-26.pdf",
             "owner": "Model",
-            "scenario": "S0_BASE_30MW_OPONLY",
+            "scenario": HEADLINE_SCENARIO_ID,
             "status": "locked",
         },
         {
@@ -1132,20 +1155,20 @@ def build_assumptions_register(output_csv: Path) -> None:
         },
         {
             "parameter": "Headline accounting mode",
-            "value": "operational_only",
+            "value": HEADLINE_CO2_ACCOUNTING_MODE,
             "units": "mode",
             "source_doc": "Locked decision",
             "owner": "Model",
-            "scenario": "S0_BASE_30MW_OPONLY",
+            "scenario": HEADLINE_SCENARIO_ID,
             "status": "locked",
         },
         {
-            "parameter": "Fuel-displacement accounting mode",
-            "value": "fuel_displacement",
+            "parameter": "Sensitivity accounting mode",
+            "value": _alternate_co2_mode(HEADLINE_CO2_ACCOUNTING_MODE),
             "units": "mode",
             "source_doc": "Locked decision",
             "owner": "Model",
-            "scenario": "S2_30MW_FUELDISP",
+            "scenario": _scenario_for_mode(_alternate_co2_mode(HEADLINE_CO2_ACCOUNTING_MODE), 30.0),
             "status": "sensitivity_only",
         },
         {
@@ -1204,6 +1227,11 @@ def run_stage2_scenarios(
             "baseline_or_sensitivity": "sensitivity_optional",
         },
     ]
+    for scenario in scenarios:
+        scenario["baseline_or_sensitivity"] = _headline_baseline_label(
+            scenario["scenario_id"],
+            scenario["baseline_or_sensitivity"],
+        )
 
     scenario_dir = output_root / "scenarios"
     scenario_dir.mkdir(parents=True, exist_ok=True)
@@ -1262,6 +1290,9 @@ def build_uncertainty_summary(
     output_json: Path,
     samples: int = 120,
     seed: int = 20260301,
+    q_thermal_mw: float = 30.0,
+    co2_accounting_mode: str = HEADLINE_CO2_ACCOUNTING_MODE,
+    scenario_id: str = HEADLINE_SCENARIO_ID,
     verbose: bool = False,
 ) -> Dict[str, float]:
     rng = np.random.default_rng(seed)
@@ -1273,10 +1304,10 @@ def build_uncertainty_summary(
         htse_heat = float(np.clip(6.5 * rng.normal(1.0, 0.10), 4.0, 9.0))
         out = run_co2_reduction_analysis(
             baseline_plant_result,
-            Q_thermal=30e6,
-            co2_accounting_mode="operational_only",
-            scenario_name="S0_BASE_30MW_OPONLY_UQ",
-            scenario_id="S0_BASE_30MW_OPONLY",
+            Q_thermal=q_thermal_mw * 1e6,
+            co2_accounting_mode=co2_accounting_mode,
+            scenario_name=f"{scenario_id}_UQ",
+            scenario_id=scenario_id,
             baseline_or_sensitivity="baseline",
             source_assumptions_version="v2",
             dac_heat_intensity=dac_heat,
@@ -1309,36 +1340,36 @@ def build_delta_table(
     scenario_results: Dict[str, Dict],
     output_csv: Path,
 ) -> None:
-    s0 = scenario_results["S0_BASE_30MW_OPONLY"]
+    headline_result = scenario_results[HEADLINE_SCENARIO_ID]
     rows = [
         {
             "item": "M5 Net electric output (assumed 13.5 MWe)",
             "old_value": 13.5,
-            "new_value": round(s0["plant"]["power_MW"]["W_net"], 3),
+            "new_value": round(headline_result["plant"]["power_MW"]["W_net"], 3),
             "units": "MWe",
             "reason": "Replaced fixed assumption with solved baseline output",
-            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+            "source": f"run_tests scenario {HEADLINE_SCENARIO_ID}",
         },
         {
             "item": "M5 Electricity to HTSE (assumed 10 MWe)",
             "old_value": 10.0,
-            "new_value": round(s0["co2"]["allocation"]["W_to_HTSE_MW"], 3),
+            "new_value": round(headline_result["co2"]["allocation"]["W_to_HTSE_MW"], 3),
             "units": "MWe",
             "reason": "Allocation now constrained by modelled plant net power and HTSE heat",
-            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+            "source": f"run_tests scenario {HEADLINE_SCENARIO_ID}",
         },
         {
             "item": "M5 Heat to DAC (assumed 5 MWth)",
             "old_value": 5.0,
-            "new_value": round(s0["co2"]["allocation"]["Q_to_DAC_MW"], 3),
+            "new_value": round(headline_result["co2"]["allocation"]["Q_to_DAC_MW"], 3),
             "units": "MWth",
             "reason": "Replaced static split with optimized constrained allocation",
-            "source": "run_tests scenario S0_BASE_30MW_OPONLY",
+            "source": f"run_tests scenario {HEADLINE_SCENARIO_ID}",
         },
         {
             "item": "M3 Demo cycle efficiency claim (~45%)",
             "old_value": 45.0,
-            "new_value": round(s0["plant"]["efficiencies"]["eta_thermal_percent"], 3),
+            "new_value": round(headline_result["plant"]["efficiencies"]["eta_thermal_percent"], 3),
             "units": "%",
             "reason": "Current integrated baseline at 40C ambient is lower than optimistic claim",
             "source": "results from coupled model baseline scenario",
@@ -1384,7 +1415,10 @@ def build_architecture_matrix(output_csv: Path) -> None:
         {
             "block": "CO2 accounting boundary",
             "implemented_in": "process/allocation.py",
-            "governing_basis": "operational_only headline + fuel_displacement sensitivity",
+            "governing_basis": (
+                f"{HEADLINE_CO2_ACCOUNTING_MODE} headline + "
+                f"{_alternate_co2_mode(HEADLINE_CO2_ACCOUNTING_MODE)} sensitivity"
+            ),
             "constraints": "unit conversion checks and scenario metadata tags",
             "validation_anchor": "conversion round-trip checks",
             "known_limitations": "Fuel displacement depends on assumed reference EF",
@@ -1423,7 +1457,7 @@ def build_limitations_register(output_csv: Path) -> None:
 
 def build_equation_sheet(output_md: Path) -> None:
     output_md.parent.mkdir(parents=True, exist_ok=True)
-    text = """# Equation Sheet (Scenario-Tagged)
+    text = f"""# Equation Sheet (Scenario-Tagged)
 
 ## Allocation Constraints
 - Electricity: `W_HTSE + W_DAC + W_grid <= W_allocatable`
@@ -1431,8 +1465,8 @@ def build_equation_sheet(output_md: Path) -> None:
 - HTSE heat: `Q_HTSE = W_HTSE * (HTSE_heat_intensity / HTSE_elec_intensity)` when enforced.
 
 ## CO2 Accounting
-- Operational-only mode: `CO2_net = CO2_DAC + CO2_grid`
-- Fuel-displacement mode: `CO2_net = CO2_displaced_fossil + CO2_grid - CO2_embodied - (CO2_reemitted_synthetic if neutrality disabled)`
+- Headline mode ({HEADLINE_CO2_ACCOUNTING_MODE}): `CO2_net = {'CO2_DAC + CO2_grid' if HEADLINE_CO2_ACCOUNTING_MODE == 'operational_only' else 'CO2_displaced_fossil + CO2_grid - CO2_embodied - (CO2_reemitted_synthetic if neutrality disabled)'}`
+- Sensitivity mode ({_alternate_co2_mode(HEADLINE_CO2_ACCOUNTING_MODE)}): `CO2_net = {'CO2_DAC + CO2_grid' if _alternate_co2_mode(HEADLINE_CO2_ACCOUNTING_MODE) == 'operational_only' else 'CO2_displaced_fossil + CO2_grid - CO2_embodied - (CO2_reemitted_synthetic if neutrality disabled)'}`
 
 ## Unit Conversions
 - `kgCO2/TJ = gCO2/kWh * 277.7777778`
@@ -1533,12 +1567,13 @@ def generate_stage2_canonical_pack(
         failed_ids = ", ".join(sorted(s["scenario_id"] for s in infeasible_scenarios))
         raise RuntimeError(f"Canonical feasibility gate failed for scenarios: {failed_ids}")
 
-    # Use S0 plant state as baseline for uncertainty around process intensities.
+    # Use headline plant state as baseline for uncertainty around process intensities.
+    headline_scenario = scenario_results[HEADLINE_SCENARIO_ID]["scenario"]
     _, baseline_plant_result = run_full_plant_solve(
         T_ambient_C=40.0,
         heat_rejection_mode="fixed_boundary",
-        Q_thermal_MW=30.0,
-        scenario_id="S0_BASE_30MW_OPONLY",
+        Q_thermal_MW=headline_scenario["Q_thermal_MW"],
+        scenario_id=HEADLINE_SCENARIO_ID,
         baseline_or_sensitivity="baseline",
         source_assumptions_version="v2",
         cooling_aux_fraction=0.01,
@@ -1550,6 +1585,9 @@ def generate_stage2_canonical_pack(
         baseline_plant_result,
         output_root / "uncertainty_summary.json",
         samples=uq_samples,
+        q_thermal_mw=headline_scenario["Q_thermal_MW"],
+        co2_accounting_mode=HEADLINE_CO2_ACCOUNTING_MODE,
+        scenario_id=HEADLINE_SCENARIO_ID,
         verbose=verbose,
     )
 
@@ -1564,10 +1602,10 @@ def generate_stage2_canonical_pack(
                 "W_net_MWe": payload["plant"]["power_MW"]["W_net"],
                 "eta_net_percent": payload["plant"]["efficiencies"]["eta_net_percent"],
                 "FOM_tCO2_per_MWth_yr": payload["co2"]["figures_of_merit"]["CO2_reduction_t_per_MWth_per_yr"],
-                "UQ_p50": uncertainty["p50"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
-                "UQ_p90": uncertainty["p90"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
-                "UQ_ci95_low": uncertainty["ci95_low"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
-                "UQ_ci95_high": uncertainty["ci95_high"] if scenario_id == "S0_BASE_30MW_OPONLY" else "",
+                "UQ_p50": uncertainty["p50"] if scenario_id == HEADLINE_SCENARIO_ID else "",
+                "UQ_p90": uncertainty["p90"] if scenario_id == HEADLINE_SCENARIO_ID else "",
+                "UQ_ci95_low": uncertainty["ci95_low"] if scenario_id == HEADLINE_SCENARIO_ID else "",
+                "UQ_ci95_high": uncertainty["ci95_high"] if scenario_id == HEADLINE_SCENARIO_ID else "",
             }
         )
     _write_csv(
@@ -1604,7 +1642,7 @@ def generate_stage2_canonical_pack(
         output_root / "canonical_pack_index.json",
         {
             "generated_at": datetime.now().isoformat(),
-            "headline_scenario": "S0_BASE_30MW_OPONLY",
+            "headline_scenario": HEADLINE_SCENARIO_ID,
             "scenarios": sorted(scenario_results.keys()),
             "output_root": str(output_root),
             "require_feasible": require_feasible,
@@ -1903,10 +1941,12 @@ def main():
     co2_results = run_co2_reduction_analysis(
         plant_result,
         Q_thermal=30e6,
-        co2_boundary_mode="operational_only",
+        co2_boundary_mode=HEADLINE_CO2_ACCOUNTING_MODE,
         allow_grid_export=False,
         enforce_htse_heat_constraint=True,
         scenario_name="headline_htgr_only",
+        scenario_id=HEADLINE_SCENARIO_ID,
+        baseline_or_sensitivity="baseline",
         verbose=True,
     )
 

@@ -22,8 +22,8 @@ Operational coordination docs:
 
 Current locked defaults:
 1. HTGR-only scope
-2. Headline CO2 boundary: `operational_only`
-3. Baseline case: `S0_BASE_30MW_OPONLY` (`30 MWth`)
+2. Headline CO2 boundary: `fuel_displacement`
+3. Baseline case: `S2_30MW_FUELDISP` (`30 MWth`)
 4. `36 MWth` is sensitivity only
 
 ## Canonical Outputs
@@ -51,8 +51,8 @@ Report drafting and traceability artifacts live in:
 - `reports/final/qa/report_sync_check.json`
 
 The report headline basis is locked to:
-- scenario: `S0_BASE_30MW_OPONLY`
-- boundary: `operational_only`
+- scenario: `S2_30MW_FUELDISP`
+- boundary: `fuel_displacement`
 
 ## Running the Pipeline
 
