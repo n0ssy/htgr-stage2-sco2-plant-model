@@ -180,6 +180,34 @@ All production calculations are mathematically correct.
 
 ---
 
+## Feasibility-Recovery Hierarchy (Current Implementation)
+
+The headline fixed-boundary solve now applies deterministic feasibility recovery in staged order, while keeping core physics constraints unchanged.
+
+### Stage Order
+
+1. Operating-point search only
+   - bounded search over `(P_high, P_low, f_recomp)` with deterministic coarse + local refinement.
+2. Add `T_1_boundary_target` sweep
+3. Add `IHX dT_approach` sweep
+4. Add `cooling_aux_fraction` sweep
+
+### Allowed Moderate Tuning Ranges
+
+- `T_1_boundary_target`: `[T_ambient + 8 K, T_ambient + 12 K]`
+- `IHX dT_approach`: `[25 K, 35 K]`
+- `cooling_aux_fraction`: `[0.005, 0.02]`
+
+Selected operating point and tuned assumptions are persisted into scenario metadata for traceability.
+
+### Gate Behavior
+
+- Headline infeasible with no override: fail-fast before CO2/canonical stages.
+- Override: `ALLOW_INFEASIBLE_DIAGNOSTIC=1` permits diagnostic continuation.
+- Canonical generation: `require_feasible=True` aborts and writes `outputs/canonical_pack/feasibility_failure_report.json` when any scenario is infeasible.
+
+---
+
 ## Part 4: Presentation Preparation
 
 ### Key Messages for Rolls-Royce
