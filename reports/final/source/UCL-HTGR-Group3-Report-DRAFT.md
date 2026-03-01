@@ -62,11 +62,16 @@ direct air capture (DAC), high-temperature steam electrolysis (HTSE),
 and methanol synthesis.
 
 The locked headline case used consistently in this final report is
-`S2_30MW_FUELDISP` under the `fuel_displacement` boundary. For this
-validated baseline, the model converges to a feasible plant at 30.0
-MWth with 9.939 MWe net output, 33.90% thermal efficiency, 33.13% net
-efficiency, and 9,898 tCO2/year net reduction, corresponding to a
-primary figure of merit of 329.9 tCO2/MWth/year.
+`S2_30MW_FUELDISP` under the `fuel_displacement` boundary with
+`fuel_factory` concept mode. For this validated baseline, the model
+converges to a feasible plant at 30.0 MWth with 9.628 MWe net output,
+32.85% thermal efficiency, 32.09% net efficiency, and 30,364.1
+tCO2/year net reduction, corresponding to a primary figure of merit of
+1012.1 tCO2/MWth/year.
+
+This headline value is a project-level avoided-emissions Figure of Merit
+under a fuel-displacement comparator boundary, not an audited corporate
+GHG inventory claim.
 
 Earlier 36 MWth framing is retained only as historical development
 context and sensitivity evidence; it is not used as the headline final
@@ -133,6 +138,11 @@ conversion, lower-grade heat supports process duty before final
 rejection. This architecture converts what is typically treated as
 low-value rejected heat into a productive CO2-reduction resource.
 
+For final headline scenarios, allocation is constrained in fuel-factory
+mode with an enforced minimum methanol output floor, preventing the
+solution from collapsing to DAC-only operation while still being
+presented as integrated fuel production.
+
 # Section 4 - Modelling Development & Methodology
 
 ## 4.1 Modelling Philosophy and Fidelity
@@ -186,7 +196,7 @@ Main-text equation (headline boundary):
 For the locked headline case, grid export is zero by design and
 neutrality is enabled in the accounting settings, so:
 
-`Net_CO2_fuel_displacement = CO2_displaced_fossil - CO2_embodied = 9,898 tCO2/year`
+`Net_CO2_fuel_displacement = CO2_displaced_fossil - CO2_embodied = 30,364.1 tCO2/year`
 
 #### **4.3.3 Net CO<sub>2</sub> Reduction**
 
@@ -201,9 +211,13 @@ headline figure in the main report body.
 
 - The main-body headline is always `fuel_displacement`.
 - The `operational_only` basis is shown only as sensitivity.
+- Headline optimization is run in `fuel_factory` concept mode with a
+  minimum methanol output floor enabled.
 - kgCO2 and kgCO2e are treated as equivalent in this engineering-stage
   accounting pass.
 - No-grid-export policy is applied in the headline scenario.
+- Headline CO2 claims are reported as project-level avoided-emissions
+  FoMs, not audited inventory claims.
 
 # Section 5 - Verification and Validation
 
@@ -223,9 +237,12 @@ tests in the branch workflow.
 ## 5.2 Validation Against Reference Case
 
 The cycle reference validation remains the Dostal-style benchmark case.
-The committed authoritative run reports 41.07% thermal efficiency
+The committed authoritative run reports 41.10% thermal efficiency
 against a 45.0% +/- 5.0% acceptance band, and the validation gate
-passes.
+passes. Additional validation anchors include secondary cycle sanity-band
+checks, process-intensity closure checks (DAC/HTSE/methanol), and
+boundary-consistency checks from identical plant states under alternative
+accounting boundaries.
 
 ## 5.3 Feasibility Evidence
 
@@ -233,6 +250,8 @@ The final authoritative run demonstrates:
 
 - headline baseline (`S2_30MW_FUELDISP`) converged and feasible,
 - plant energy closure within tolerance,
+- objective-consistency and methanol-floor policy checks passed for the
+  headline scenario,
 - all canonical scenarios S0-S3 converged and feasible under required
   gating.
 
@@ -253,17 +272,17 @@ Table 6.1 — Integrated Plant Performance
 | Metric | Value |
 |---|---:|
 | Reactor thermal power | 30.0 MWth |
-| Net electrical power | 9.939 MWe |
-| Thermal efficiency | 33.90% |
-| Net efficiency | 33.13% |
-| Plant energy closure | 0.435% |
-| CO2 mass flow | 165.9 kg/s |
+| Net electrical power | 9.628 MWe |
+| Thermal efficiency | 32.85% |
+| Net efficiency | 32.09% |
+| Plant energy closure | 0.377% |
+| CO2 mass flow | 162.5 kg/s |
 | Compressor inlet temperature | 50.0 C |
-| Turbine inlet temperature | 517.7 C |
-| HTR pinch margin | +1.66 K |
-| IHX pinch margin | +13.00 K |
-| LTR pinch margin | +2.82 K |
-| Helium return margin | +10.74 K |
+| Turbine inlet temperature | 520.0 C |
+| HTR pinch margin | +0.98 K |
+| IHX pinch margin | +13.37 K |
+| LTR pinch margin | +3.02 K |
+| Helium return margin | +0.92 K |
 | Feasible / Converged | True / True |
 
 All electrical output remains on-site in headline mode, with no grid
@@ -275,11 +294,11 @@ Table 6.2 – Primary Figure of Merit
 
 | Metric | Value |
 |---|---:|
-| Net CO2 reduction (fuel_displacement) | 9,898 tCO2/year |
-| Primary FoM | 329.9 tCO2/MWth/year |
-| DAC capture | 44,468 tCO2/year |
-| Hydrogen production | 627.3 t/year |
-| Methanol production | 3245.3 t/year |
+| Net CO2 reduction (fuel_displacement) | 30,364.1 tCO2/year |
+| Primary FoM | 1012.1 tCO2/MWth/year |
+| DAC capture | 15,192.4 tCO2/year |
+| Hydrogen production | 1,924.4 t/year |
+| Methanol production | 9,955.4 t/year |
 
 The dominant sensitivity drivers include electrolyser efficiency
 (electricity demand per unit hydrogen), DAC parasitic load (energy
@@ -288,9 +307,9 @@ required for CO<sub>2</sub> capture), and overall cycle efficiency
 affect total energy demand and, therefore, the calculated CO<sub>2</sub>
 reduction and FOM.
 
-Uncertainty context from the committed canonical UQ artifact (120
-samples): FoM mean 331.6 tCO2/MWth/year, p10/p50/p90 of 302.7 / 331.5 /
-360.8, and a 95% interval of 288.6 to 377.9 tCO2/MWth/year.
+Uncertainty context from the committed canonical UQ artifact (40
+samples): FoM mean 1004.9 tCO2/MWth/year, p10/p50/p90 of 892.2 / 1007.9
+/ 1220.1, and a 95% interval of 690.2 to 1238.5 tCO2/MWth/year.
 
 ## 6.3 Secondary Figures of Merit
 
@@ -298,16 +317,18 @@ Canonical sensitivity summary (all feasible and converged):
 
 | Scenario | Basis | Net power (MWe) | FoM (tCO2/MWth/year) | Feasible |
 |---|---|---:|---:|---|
-| S0_BASE_30MW_OPONLY | 30 MWth, operational_only | 9.939 | 1482.3 | Yes |
-| S1_36MW_OPONLY | 36 MWth, operational_only | 12.101 | 1471.9 | Yes |
-| S2_30MW_FUELDISP | 30 MWth, fuel_displacement (headline) | 9.939 | 329.9 | Yes |
-| S3_36MW_FUELDISP | 36 MWth, fuel_displacement | 12.101 | 334.7 | Yes |
+| S2_30MW_FUELDISP | 30 MWth, fuel_displacement (headline) | 9.628 | 1012.1 | Yes |
+| S3_36MW_FUELDISP | 36 MWth, fuel_displacement | 11.464 | 1004.3 | Yes |
+| S0_BASE_30MW_OPONLY | 30 MWth, operational_only | 9.628 | 3014.8 | Yes |
+| S1_36MW_OPONLY | 36 MWth, operational_only | 11.464 | 3025.6 | Yes |
 
 Secondary conclusions:
 - Feasibility is maintained across all four canonical scenarios.
 - 36 MWth results are retained as sensitivity context only.
 - Operational-only values are sensitivity-only and not used as headline
   claims in the main report.
+- Boundary mode strongly affects FoM magnitude and interpretation, so
+  scenario tags and boundary labels are required on all reported values.
 
 # Section 7 - Safety Philosophy
 
@@ -480,7 +501,8 @@ process duty at lower-grade heat, and explicit feasibility-gated
 operation under dry-cooling constraints. This design framing converts
 the dry-cooling penalty from a pure loss into a system-integration
 opportunity while keeping headline CO2 claims tied to an explicitly
-labeled comparator boundary (`fuel_displacement`).
+labeled comparator boundary (`fuel_displacement`) and an allocation
+policy that enforces fuel-factory behavior.
 
 ## 9.2 Future Work
 
@@ -492,6 +514,16 @@ Priority next steps are:
    ambient conditions,
 3. expanded uncertainty campaign consistent with full BEPU framing,
 4. higher-fidelity off-design heat-rejection analysis.
+
+# Assumptions and Limitations (Main-Body Summary)
+
+| Item | Current treatment | Why acceptable now | Next-step upgrade |
+|---|---|---|---|
+| Headline accounting boundary | `fuel_displacement` project FoM | Aligns with fuel-factory concept and is explicitly labeled | Add RR-specified boundary preference if provided |
+| Cooling representation in headline | `fixed_boundary` | HTGR-only scope, thermodynamic closure maintained | Improve coupled cooling fidelity in sensitivity appendix |
+| Reactor-side fidelity | Boundary-condition thermal source | Appropriate for this cycle scope | Add higher-fidelity reactor-side coupling |
+| UQ depth | Seeded 40-sample campaign | Reproducible and schedule-compatible | Expand sample size and input uncertainty space |
+| Safety integration | External workstream evidence | Preserves traceability and avoids overclaiming integration | Add tighter coupling path in future stage |
 
 # References
 
