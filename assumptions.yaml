@@ -1,5 +1,5 @@
 metadata:
-  generated_at: '2026-03-01T16:14:18.850165'
+  generated_at: '2026-03-01T18:24:16.761441'
   description: Complete list of assumptions and default values used in the sCO2 plant
     simulation
 fluid_properties:
@@ -142,8 +142,13 @@ process_allocation:
   n_multistart_default: 16
   global_screen_grid_default: 61
   objective_gap_tolerance_rel_default: 0.01
-  co2_accounting_mode_headline: operational_only
-  co2_boundary_mode_headline: operational_only
+  co2_accounting_mode_headline: fuel_displacement
+  co2_boundary_mode_headline: fuel_displacement
+  headline_scenario_id: S2_30MW_FUELDISP
+  concept_mode_headline: fuel_factory
+  enforce_min_meoh_output_headline: true
+  min_meoh_t_yr_30MW_headline: 8833.0
+  min_meoh_t_yr_36MW_sensitivity: 10600.0
   apply_neutrality_condition_default: true
   fuel_emission_factor_kgco2_per_kg_default: 3.15
   displacement_factor_default: 1.0
