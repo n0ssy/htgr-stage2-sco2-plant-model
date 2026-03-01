@@ -333,6 +333,27 @@ def _build_feasibility_summary(scenario_id: str, plant_results: Dict[str, Any]) 
     }
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert numpy/path and nested containers into JSON-serializable builtins."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    return value
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(_json_safe(payload), f, indent=2)
+
+
 def run_full_plant_solve(
     T_ambient_C: float = 40.0,
     heat_rejection_mode: str = "fixed_boundary",
@@ -1226,8 +1247,7 @@ def run_stage2_scenarios(
         }
         results[sc["scenario_id"]] = combined
         feasibility_summaries[sc["scenario_id"]] = combined["feasibility_summary"]
-        with open(scenario_dir / f"{sc['scenario_id']}.json", "w") as f:
-            json.dump(combined, f, indent=2)
+        _write_json(scenario_dir / f"{sc['scenario_id']}.json", combined)
         if verbose:
             print(
                 f"[canonical] wrote scenario file: {sc['scenario_id']}.json "
@@ -1281,9 +1301,7 @@ def build_uncertainty_summary(
         "ci95_low": float(np.percentile(arr, 2.5)),
         "ci95_high": float(np.percentile(arr, 97.5)),
     }
-    output_json.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_json, "w") as f:
-        json.dump(summary, f, indent=2)
+    _write_json(output_json, summary)
     return summary
 
 
@@ -1505,8 +1523,7 @@ def generate_stage2_canonical_pack(
             ),
         }
         failure_path = output_root / "feasibility_failure_report.json"
-        with open(failure_path, "w") as f:
-            json.dump(failure_payload, f, indent=2)
+        _write_json(failure_path, failure_payload)
         index_path = output_root / "canonical_pack_index.json"
         if index_path.exists():
             index_path.unlink()
@@ -1583,18 +1600,16 @@ def generate_stage2_canonical_pack(
     build_equation_sheet(output_root / "equation_sheet.md")
     build_constraint_margin_table(scenario_results, output_root / "constraint_margin_table.csv")
 
-    with open(output_root / "canonical_pack_index.json", "w") as f:
-        json.dump(
-            {
-                "generated_at": datetime.now().isoformat(),
-                "headline_scenario": "S0_BASE_30MW_OPONLY",
-                "scenarios": sorted(scenario_results.keys()),
-                "output_root": str(output_root),
-                "require_feasible": require_feasible,
-            },
-            f,
-            indent=2,
-        )
+    _write_json(
+        output_root / "canonical_pack_index.json",
+        {
+            "generated_at": datetime.now().isoformat(),
+            "headline_scenario": "S0_BASE_30MW_OPONLY",
+            "scenarios": sorted(scenario_results.keys()),
+            "output_root": str(output_root),
+            "require_feasible": require_feasible,
+        },
+    )
     if verbose:
         print("[canonical] wrote canonical_pack_index.json")
     return scenario_results
@@ -1646,8 +1661,7 @@ def write_headline_feasibility_trace(
         },
         "convergence_reason": baseline_plant_result.convergence_reason,
     }
-    with open(trace_path, "w") as f:
-        json.dump(payload, f, indent=2)
+    _write_json(trace_path, payload)
     return trace_path
 
 
@@ -1672,8 +1686,7 @@ def write_output_files(
             yaml.dump(assumptions, f, default_flow_style=False, sort_keys=False)
         print(f"Written: assumptions.yaml")
     else:
-        with open(output_path / 'assumptions.json', 'w') as f:
-            json.dump(assumptions, f, indent=2)
+        _write_json(output_path / 'assumptions.json', assumptions)
         print(f"Written: assumptions.json (yaml not available)")
 
     # 2. Run (or reuse) plant solve and write results_baseline.json
@@ -1685,8 +1698,7 @@ def write_output_files(
         if verbose:
             print("Computing baseline plant solve for output files...")
         results, plant_result = run_full_plant_solve(T_ambient_C=40.0, verbose=verbose)
-    with open(output_path / 'results_baseline.json', 'w') as f:
-        json.dump(results, f, indent=2)
+    _write_json(output_path / 'results_baseline.json', results)
     print(f"Written: results_baseline.json")
 
     # 3. Write feasibility_report.txt
@@ -1723,8 +1735,7 @@ def write_output_files(
             print("Computing CO2 reduction results for output files...")
         co2_results = run_co2_reduction_analysis(plant_result, Q_thermal=30e6, verbose=verbose)
 
-    with open(output_path / 'co2_reduction_results.json', 'w') as f:
-        json.dump(co2_results, f, indent=2)
+    _write_json(output_path / 'co2_reduction_results.json', co2_results)
     print(f"Written: co2_reduction_results.json")
 
     # 5. Write human-readable CO2 reduction report

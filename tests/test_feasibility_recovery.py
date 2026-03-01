@@ -7,6 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import numpy as np
+
 if "CoolProp" not in sys.modules:
     coolprop_pkg = types.ModuleType("CoolProp")
     coolprop_module = types.ModuleType("CoolProp.CoolProp")
@@ -258,6 +260,36 @@ class FailFastControlTests(unittest.TestCase):
             self.assertTrue((root / "feasibility_report.txt").exists())
             self.assertFalse((root / "co2_reduction_results.json").exists())
             self.assertFalse((root / "co2_reduction_report.txt").exists())
+
+    def test_trace_writer_serializes_numpy_scalars(self):
+        fake_config = SimpleNamespace(Q_thermal=30e6, heat_rejection_mode="fixed_boundary")
+        fake_result = _make_fake_plant_result(fake_config, feasible=True)
+        fake_result.feasibility_report.constraints = {
+            "T03": np.bool_(True),
+            "E03_plant": np.bool_(True),
+        }
+        fake_result.feasibility_report.margins["energy_residual_plant_rel"] = np.float64(0.003)
+
+        baseline_results = {
+            "metadata": {"scenario_id": "S0_BASE_30MW_OPONLY"},
+            "status": {"feasible": True, "converged": True},
+            "search_summary": {},
+            "tuning_attempts": [],
+            "solver_trace": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            trace_path = run_tests.write_headline_feasibility_trace(
+                baseline_results=baseline_results,
+                baseline_plant_result=fake_result,
+                output_dir=tmp,
+            )
+            payload = json.loads(trace_path.read_text())
+            self.assertTrue(payload["feasibility_report"]["constraints"]["T03"])
+            self.assertAlmostEqual(
+                payload["feasibility_report"]["margins"]["energy_residual_plant_rel"],
+                0.003,
+                places=6,
+            )
 
 
 class TuningMetadataTests(unittest.TestCase):
