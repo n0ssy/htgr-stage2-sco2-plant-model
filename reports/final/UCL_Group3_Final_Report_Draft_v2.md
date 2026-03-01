@@ -9,7 +9,7 @@ HTGR, HTTR, sCO2, RCBC, IHX, DAC, HTSE, PtL, TRISO, RCCS, DiD, LOFC, P-LOFC, D-L
 ## 1. Introduction and Project Overview
 Hard-to-abate sectors require energy vectors beyond direct electrification. Our project addresses this by integrating a High Temperature Gas-cooled Reactor (HTGR), a supercritical CO2 recompression Brayton cycle, direct air capture (DAC), and methanol synthesis into a water-independent Power-to-Liquids architecture.
 
-The final headline case used throughout this report is the validated baseline scenario `S0_BASE_30MW_OPONLY`: a 30.0 MWth reactor basis, fixed-boundary dry-cooling assumptions at 40C ambient, and an operational-only carbon boundary. In this locked case, the plant is feasible and converged, produces 9.939 MWe net electrical output, and achieves 44,468 tCO2/year net reduction with a primary FoM of 1482.3 tCO2/MWth/year.
+The final headline case used throughout this report is the validated baseline scenario `S2_30MW_FUELDISP`: a 30.0 MWth reactor basis, fixed-boundary dry-cooling assumptions at 40C ambient, and a fuel-displacement carbon boundary. In this locked case, the plant is feasible and converged, produces 9.939 MWe net electrical output, and achieves 9,898 tCO2/year net reduction with a primary FoM of 329.9 tCO2/MWth/year.
 
 A 36 MWth framing was explored during earlier project development to study dry-cooling penalty recovery; in this final report it is retained only as sensitivity context, not as the headline basis.
 
@@ -88,13 +88,13 @@ Efficiency definitions used in this report:
 #### Boundary Definition Box
 Headline boundary (used in main text):
 
-`operational_only: CO2_net = CO2_DAC + CO2_grid`
+`fuel_displacement: CO2_net = CO2_displaced_fossil + CO2_grid - CO2_embodied - CO2_reemitted_synthetic (if neutrality disabled)`
 
 Sensitivity boundary (reported separately):
 
-`fuel_displacement: CO2_net = CO2_displaced_fossil + CO2_grid - CO2_embodied - CO2_reemitted_synthetic (if neutrality disabled)`
+`operational_only: CO2_net = CO2_DAC + CO2_grid`
 
-In the headline case, grid export is disabled, so operational-only net reduction is driven by DAC capture under the solved allocation constraints.
+In the headline case, grid export is disabled and neutrality is enabled, so fuel-displacement net reduction is set by displaced-fossil and embodied-product terms under solved allocation constraints.
 
 Historical Jet-A equivalence assumptions are retained only for sensitivity framing and are not used to define the main headline FoM in this final draft.
 
@@ -111,7 +111,7 @@ Verification evidence includes:
 The cycle validation anchor is the Dostal-style case in the committed runner. Recent authoritative run output reports 41.07% thermal efficiency against an expected 45.0% ± 5.0% acceptance band, and this gate passes.
 
 ### 5.3 Feasibility and Closure Evidence
-For the headline baseline (`S0_BASE_30MW_OPONLY`), all major gates pass:
+For the headline baseline (`S2_30MW_FUELDISP`), all major gates pass:
 - converged: true,
 - feasible: true,
 - plant energy closure: 0.435% (<0.5% tolerance),
@@ -124,7 +124,7 @@ For the headline baseline (`S0_BASE_30MW_OPONLY`), all major gates pass:
 - Uncertainty characterization uses the committed UQ summary artifact; this is not a complete BEPU campaign.
 
 ## 6. Results and Figures of Merit
-### 6.1 Headline Plant Performance (`S0_BASE_30MW_OPONLY`, operational-only)
+### 6.1 Headline Plant Performance (`S2_30MW_FUELDISP`, fuel_displacement)
 
 | Parameter | Value |
 |---|---:|
@@ -143,20 +143,20 @@ For the headline baseline (`S0_BASE_30MW_OPONLY`), all major gates pass:
 | Feasible / Converged | True / True |
 
 ### 6.2 Primary FoM (single headline boundary)
-Headline basis is strictly operational-only.
+Headline basis is strictly fuel-displacement.
 
 | Metric | Value |
 |---|---:|
-| Net CO2 reduction | 44,468 tCO2/year |
-| Primary FoM | 1482.3 tCO2/MWth/year |
+| Net CO2 reduction | 9,898 tCO2/year |
+| Primary FoM | 329.9 tCO2/MWth/year |
 | DAC capture rate | 44,468 tCO2/year |
 | Hydrogen production | 627.3 t/year |
 | Methanol production | 3245.3 t/year |
 
 Uncertainty context (from committed UQ artifact, 120 samples):
-- FoM mean: 1474.0 tCO2/MWth/year
-- p10/p50/p90: 1345.2 / 1473.2 / 1615.1
-- 95% interval: 1273.7 to 1676.3
+- FoM mean: 331.6 tCO2/MWth/year
+- p10/p50/p90: 302.7 / 331.5 / 360.8
+- 95% interval: 288.6 to 377.9
 
 This uncertainty reflects process-intensity perturbations around the locked baseline and should be read as model sensitivity context, not full technoeconomic project risk.
 
@@ -167,7 +167,7 @@ Canonical scenario summary (all feasible/converged in final run):
 |---|---|---:|---:|---|
 | S0_BASE_30MW_OPONLY | 30 MWth, operational_only | 9.939 | 1482.3 | Yes |
 | S1_36MW_OPONLY | 36 MWth, operational_only | 12.101 | 1471.9 | Yes |
-| S2_30MW_FUELDISP | 30 MWth, fuel_displacement | 9.939 | 329.9 | Yes |
+| S2_30MW_FUELDISP | 30 MWth, fuel_displacement (headline) | 9.939 | 329.9 | Yes |
 | S3_36MW_FUELDISP | 36 MWth, fuel_displacement | 12.101 | 334.7 | Yes |
 
 Secondary indicators:
@@ -211,7 +211,7 @@ Workstream ownership was maintained across six members with clear section respon
 
 ## 9. Novelty and Future Work
 ### 9.1 Novelty
-The key novelty is system-level heat-quality integration: waste-heat utilization is treated as a design resource rather than solely a rejection burden. Combined with operational-only carbon accounting and feasibility-gated optimization, this yields a defensible baseline FoM under explicit constraints.
+The key novelty is system-level heat-quality integration: waste-heat utilization is treated as a design resource rather than solely a rejection burden. Combined with explicitly labeled fuel-displacement accounting and feasibility-gated optimization, this yields a defensible baseline FoM under explicit constraints.
 
 ### 9.2 Historical Context
 The earlier 36 MWth framing remains useful as development history and sensitivity reference, but final headline claims are intentionally locked to the validated 30 MWth baseline.

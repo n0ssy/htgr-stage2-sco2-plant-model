@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-REPORT = ROOT / 'reports/final/UCL_Group3_Final_Report_Draft_v2.md'
+REPORT = ROOT / 'reports/final/source/UCL-HTGR-Group3-Report-DRAFT.md'
 NUMBERS = ROOT / 'reports/final/qa/numbers_lock_table.csv'
 OUT = ROOT / 'reports/final/qa/report_sync_check.json'
 
@@ -14,7 +14,7 @@ text = REPORT.read_text(encoding='utf-8')
 checks = {}
 
 # 1) Placeholder elimination
-placeholder_patterns = [r"\[Figure", r"\[\?\?\?", r"Appendix \[", r"TODO", r"TBD"]
+placeholder_patterns = [r"\[\?\?\?", r"Appendix \[", r"TODO", r"TBD", r"INSERT_", r"@@@"]
 found_placeholders = []
 for pat in placeholder_patterns:
     if re.search(pat, text):
@@ -25,7 +25,7 @@ checks['placeholder_elimination'] = {
 }
 
 # 2) Headline number presence
-required_literals = ['30.0 MWth', '9.939 MWe', '33.90%', '33.13%', '44,468', '1482.3']
+required_literals = ['S2_30MW_FUELDISP', 'fuel_displacement', '30.0 MWth', '9.939 MWe', '33.90%', '33.13%', '9,898', '329.9']
 missing_literals = [x for x in required_literals if x not in text]
 checks['headline_literals'] = {
     'pass': len(missing_literals) == 0,
