@@ -1,0 +1,253 @@
+{
+  "scenario": {
+    "scenario_id": "S3_36MW_FUELDISP",
+    "Q_thermal_MW": 36.0,
+    "co2_accounting_mode": "fuel_displacement",
+    "baseline_or_sensitivity": "sensitivity_power",
+    "headline_role": "sensitivity_power",
+    "concept_mode": "fuel_factory",
+    "enforce_min_meoh_output": true,
+    "min_meoh_t_yr": 10600.0
+  },
+  "plant": {
+    "metadata": {
+      "timestamp": "2026-03-01T18:35:18.507134",
+      "T_ambient_C": 40.0,
+      "solver_version": "2.0.0-htgr-only",
+      "heat_rejection_mode": "fixed_boundary",
+      "assumption_mode": "htgr_only",
+      "headline_fom_mode": "htgr_only",
+      "energy_closure_tolerance_rel": 0.005,
+      "scenario_id": "S3_36MW_FUELDISP",
+      "baseline_or_sensitivity": "sensitivity_power",
+      "source_assumptions_version": "v3_fuel_factory_headline",
+      "reactor_basis_MWth": 36.0
+    },
+    "status": {
+      "converged": true,
+      "feasible": true,
+      "iterations": 48,
+      "residual_norm": 0.09117304820756544,
+      "solve_time_seconds": 128.9351406097412,
+      "energy_closure_rel": 0.003916393177769043,
+      "cycle_energy_closure_rel": 0.0009299046413876392,
+      "report_gate_passed": true,
+      "cycle_solver_status": "CONVERGED"
+    },
+    "power_MW": {
+      "W_gross": 11.69813348590355,
+      "W_cooling_aux": 0.1169813348590355,
+      "W_aux_other": 0.1169813348590355,
+      "W_net": 11.464170816185478,
+      "W_turbine": 27.17664569537723,
+      "W_MC": 7.359348018811166,
+      "W_RC": 8.11916419066251
+    },
+    "heat_duties_MW": {
+      "Q_thermal": 36.0,
+      "Q_IHX": 35.93281161229441,
+      "Q_reject": 24.160876359696765,
+      "Q_HTR": 13.18944397077307,
+      "Q_LTR": 30.853451927464327
+    },
+    "temperatures_C": {
+      "T_1_compressor_inlet": 50.0,
+      "T_5_turbine_inlet": 516.4745990835282,
+      "T_He_return": 395.87920982220385,
+      "T_ambient": 40.0
+    },
+    "pressures_MPa": {
+      "P_high": 25.0,
+      "P_low": 8.0
+    },
+    "mass_flows_kg_s": {
+      "m_dot_CO2": 195.84615532883532,
+      "m_dot_He": 15.241831203228307,
+      "m_dot_air": 0.0
+    },
+    "recompression": {
+      "f_recomp": 0.35,
+      "m_dot_MC": 127.30000096374296,
+      "m_dot_RC": 68.54615436509236
+    },
+    "efficiencies": {
+      "eta_thermal": 0.3259224219408666,
+      "eta_thermal_percent": 32.592242194086666,
+      "eta_net": 0.3184491893384855,
+      "eta_net_percent": 31.844918933848547
+    },
+    "cooling": {
+      "heat_rejection_mode": "fixed_boundary",
+      "W_cooling_aux_MW": 0.1169813348590355,
+      "dP_air_Pa": 0.0,
+      "m_dot_air_kg_s": 0.0,
+      "assumption_mode": "htgr_only",
+      "description": "HTGR headline mode using cooling boundary assumptions",
+      "cooling_aux_fraction_assumed": 0.01
+    },
+    "pinch_temperatures_K": {
+      "IHX": 26.236582599366784,
+      "HTR": 10.937572476697596,
+      "LTR": 13.01638109892167,
+      "cooler": null
+    },
+    "diagnostic_breakdown": {
+      "Q_thermal": 36000000.0,
+      "Q_IHX": 35932811.612294406,
+      "Q_reject_cycle": 24160876.359696764,
+      "W_gross": 11698133.48590355,
+      "W_cooling_aux": 116981.3348590355,
+      "W_aux_other": 116981.3348590355,
+      "W_net": 11464170.816185478,
+      "energy_residual": 0.003916393177769043,
+      "cooling_Q_model": 24160876.359696764,
+      "cooling_Q_error_rel": 0.0,
+      "cooling_closure_margin": 1.0,
+      "cycle_energy_closure_rel": 0.0009299046413876392
+    },
+    "margins": {
+      "T_crit_margin": 19.019999999999982,
+      "P_crit_margin": 623000.0,
+      "T_TIT_margin": 283.5254009164719,
+      "pinch_HTR_min": 0.9375724766975964,
+      "pinch_LTR_min": 3.01638109892167,
+      "W_gross": 11698133.48590355,
+      "energy_residual": 0.003916393177769043,
+      "energy_residual_margin": 0.004070095358612361,
+      "pinch_IHX_min": 16.236582599366784,
+      "cooling_closure": 1.0,
+      "cooling_assumed_aux_MW": 0.1169813348590355,
+      "T_He_return": 0.8792098222038476,
+      "W_net": 11464170.816185478,
+      "energy_closure": 0.001083606822230957
+    },
+    "cycle_states_C": {
+      "T_1": 50.0,
+      "T_2": 145.02819087777897,
+      "T_2a": 314.28681263000647,
+      "T_3": 316.45918506898715,
+      "T_4": 369.64262722283706,
+      "T_5": 516.4745990835282,
+      "T_6": 386.0487809916864,
+      "T_6a": 327.30319372892814,
+      "T_7": 188.1613851600058,
+      "T_9": 320.6142146947085
+    }
+  },
+  "co2": {
+    "metadata": {
+      "timestamp": "2026-03-01T18:35:18.507134",
+      "description": "HTGR-only CO2 reduction analysis with explicit boundary assumptions",
+      "co2_accounting_mode": "fuel_displacement",
+      "co2_boundary_mode": "fuel_displacement",
+      "allow_grid_export": false,
+      "enforce_htse_heat_constraint": true,
+      "scenario_name": "S3_36MW_FUELDISP",
+      "scenario_id": "S3_36MW_FUELDISP",
+      "baseline_or_sensitivity": "sensitivity_power",
+      "source_assumptions_version": "v3_fuel_factory_headline",
+      "conversion_checks_passed": true,
+      "optimization_mode": "headline_operational",
+      "objective_consistency_passed": true,
+      "objective_gap_rel": 0.0,
+      "objective_gap_tolerance_rel": 0.01,
+      "concept_mode": "fuel_factory",
+      "product_constraint_active": true,
+      "min_meoh_t_yr": 10600.0,
+      "headline_role": "sensitivity_power",
+      "headline_scenario_id": "S2_30MW_FUELDISP",
+      "net_power_scale": 1.0,
+      "waste_heat_scale": 1.0,
+      "boundary_statement": "Fuel-displacement sensitivity boundary"
+    },
+    "plant_inputs": {
+      "Q_thermal_MW": 36.0,
+      "W_net_MW": 11.464170816185478,
+      "W_fan_MW": 0.1169813348590355,
+      "Q_waste_available_MW": 24.160876359696765,
+      "T_waste_C": 188.1613851600058
+    },
+    "allocation": {
+      "W_to_HTSE_MW": 10.890962275376204,
+      "W_to_DAC_MW": 0.5732085408092737,
+      "Q_to_DAC_MW": 22.27310956529822,
+      "Q_to_HTSE_MW": 1.8877667943985423,
+      "W_to_grid_MW": 0.0,
+      "Q_to_cooler_MW": 2.328306436538696e-16,
+      "optimization_converged": true,
+      "objective_value": 1.2729249142400196,
+      "objective_consistency_passed": true,
+      "objective_best_alt": 1.2729249142400196,
+      "objective_gap_rel": 0.0,
+      "optimizer_diagnostics": {
+        "method": 1.0,
+        "screen_evaluations": 61.0,
+        "screen_best_objective": 1.2729249142400196,
+        "objective_screen_evaluations": 61.0,
+        "objective_current": 1.2729249142400196,
+        "objective_best_alt": 1.2729249142400196,
+        "objective_gap_rel": 0.0,
+        "objective_gap_tolerance_rel": 0.01
+      },
+      "product_constraint_active": true,
+      "min_meoh_t_yr": 10600.0,
+      "headline_role": "sensitivity_power"
+    },
+    "production_rates": {
+      "H2_produced_kg_s": 0.08067379463241633,
+      "H2_produced_t_yr": 2291.2842073427473,
+      "CO2_captured_DAC_kg_s": 0.6368983786769707,
+      "CO2_captured_DAC_t_yr": 18089.085847442733,
+      "MeOH_produced_kg_s": 0.41735243089836715,
+      "MeOH_produced_t_yr": 11853.57696598648
+    },
+    "co2_balance_t_yr": {
+      "avoided_grid_displacement": 0.0,
+      "captured_DAC": 18089.085847442733,
+      "embodied_in_products": 1185.3576965986483,
+      "displaced_fossil": 37338.76744285741,
+      "reemitted_synthetic": 16802.750853846817,
+      "NET_REDUCTION": 36153.40974625876
+    },
+    "figures_of_merit": {
+      "CO2_reduction_t_per_MWth_per_yr": 1004.2613818405212,
+      "specific_CO2_reduction_kg_per_kWh_th": 0.1273796780619636,
+      "co2_accounting_mode": "fuel_displacement",
+      "co2_boundary_mode": "fuel_displacement",
+      "conversion_checks_passed": true,
+      "description": "Primary FOM: tonnes CO2 reduced per year per MW thermal input"
+    },
+    "cooling_auxiliary": {
+      "cooling_aux_power_MW": 0.1169813348590355,
+      "heat_rejected_MW": 24.160876359696765,
+      "cooling_aux_percent_of_rejected_heat": 0.4841767041785553
+    },
+    "scenario_metadata": {
+      "scenario_name": "S3_36MW_FUELDISP",
+      "scenario_id": "S3_36MW_FUELDISP",
+      "baseline_or_sensitivity": "sensitivity_power",
+      "source_assumptions_version": "v3_fuel_factory_headline",
+      "co2_accounting_mode": "fuel_displacement",
+      "co2_boundary_mode": "fuel_displacement",
+      "allow_grid_export": false,
+      "grid_CO2_intensity_g_per_kWh": 400.0,
+      "enforce_htse_heat_constraint": true,
+      "apply_neutrality_condition": true,
+      "fuel_emission_factor_kgco2_per_kg": 3.15,
+      "displacement_factor": 1.0,
+      "conversion_checks_passed": true,
+      "heat_margin_W": 2.3283064365386963e-10,
+      "elec_margin_W": 0.0,
+      "optimization_mode": "headline_operational",
+      "concept_mode": "fuel_factory",
+      "product_constraint_active": true,
+      "product_constraint_passed": true,
+      "min_meoh_t_yr": 10600.0,
+      "headline_role": "sensitivity_power",
+      "headline_scenario_id": "S2_30MW_FUELDISP",
+      "objective_consistency_passed": true,
+      "objective_gap_rel": 0.0,
+      "objective_gap_tolerance_rel": 0.01
+    }
+  }
+}

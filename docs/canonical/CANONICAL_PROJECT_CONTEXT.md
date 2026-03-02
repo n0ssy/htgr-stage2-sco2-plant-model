@@ -4,6 +4,9 @@ Last updated: 2026-03-01
 
 This is the single canonical reference for project scope, assumptions, scenario IDs, teammate input usage, and reporting rules.
 
+Companion deep-dive (model behavior, outputs, and risk register):
+- `/Users/stefioannidis/Documents/UCL/Y2/RR/copies/Corrected_Approach/sco2_plant/docs/canonical/HTGR_STAGE2_MODEL_EXPLAINER_AND_RISKS.md`
+
 ## 1) What Is Authoritative
 
 Use source priority in this order.
@@ -25,11 +28,12 @@ Use source priority in this order.
 ## 2) Scope Locks (Do Not Override Without RR Confirmation)
 
 1. Team scope: HTGR only.
-2. Headline FoM boundary: `operational_only`.
-3. Baseline reactor case: `S0_BASE_30MW_OPONLY` (30 MWth).
-4. 36 MWth is sensitivity only (`S1_36MW_OPONLY`).
-5. `fuel_displacement` is sensitivity only (`S2_30MW_FUELDISP`, optional `S3_36MW_FUELDISP`).
-6. Headline HTGR results use `heat_rejection_mode="fixed_boundary"`; detailed cooler remains sensitivity/appendix.
+2. Headline FoM boundary: `fuel_displacement`.
+3. Headline scenario: `S2_30MW_FUELDISP` (30 MWth).
+4. 36 MWth is sensitivity only (`S3_36MW_FUELDISP`).
+5. `operational_only` scenarios are accounting sensitivities (`S0_BASE_30MW_OPONLY`, `S1_36MW_OPONLY`).
+6. Headline concept mode is `fuel_factory` with a hard methanol output floor.
+7. Headline HTGR results use `heat_rejection_mode="fixed_boundary"`; detailed cooler remains sensitivity/appendix.
 
 ## 3) What We Actually Need From Teammate Resources
 
@@ -64,10 +68,10 @@ Non-canonical docs must be treated as archive/reference only.
 
 ## 5) Canonical Scenario IDs and Usage
 
-1. `S0_BASE_30MW_OPONLY`: headline reporting scenario.
-2. `S1_36MW_OPONLY`: power sensitivity.
-3. `S2_30MW_FUELDISP`: accounting-boundary sensitivity.
-4. `S3_36MW_FUELDISP`: optional combined sensitivity.
+1. `S2_30MW_FUELDISP`: headline reporting scenario.
+2. `S3_36MW_FUELDISP`: power sensitivity.
+3. `S0_BASE_30MW_OPONLY`: accounting-boundary sensitivity (30 MWth).
+4. `S1_36MW_OPONLY`: accounting-boundary sensitivity (36 MWth).
 
 All reported values must include at least:
 - `scenario_id`
@@ -108,4 +112,3 @@ For any new assumption or number:
 3. Confirm tags and conversion checks pass.
 4. Update canonical pack artifacts.
 5. Update this file only if scope/policy changed.
-

@@ -161,6 +161,7 @@ class PlantResult:
     assumption_mode: str = "htgr_only"
     energy_closure_rel: float = 0.0
     diagnostic_breakdown: Dict[str, float] = field(default_factory=dict)
+    report_gate_passed: bool = False
 
 
 class CoupledPlantSolver:
@@ -258,6 +259,7 @@ class CoupledPlantSolver:
         converged = False
         residual_norm = float("inf")
         last_good_state: Optional[Dict[str, float]] = None
+        cool_converged = False
 
         cooler_diag = {
             "W_cooling_aux": 0.0,
@@ -353,6 +355,7 @@ class CoupledPlantSolver:
                     "solver_status": cool.solver_status,
                     "assumption_mode": "coupled_cooler",
                 }
+                cool_converged = bool(cool.converged and cool.feasible)
             else:
                 assumption = self._build_cooler_assumption(cycle_result, T_1_min)
                 T_1_new = assumption["T_1_new"]
@@ -365,20 +368,16 @@ class CoupledPlantSolver:
                     "solver_status": assumption["solver_status"],
                     "assumption_mode": assumption["assumption_mode"],
                 }
+                cool_converged = True
 
             if mode == "coupled_cooler":
                 last_good_state = {
                     "T_1": T_1,
                     "T_5": T_5,
                     "m_dot_CO2": m_dot_CO2,
-                    "converged": bool(cool.converged and cool.feasible),
+                    "converged": bool(cool_converged),
                     "residual_norm": residual_norm,
                 }
-                if cool.converged and cool.feasible:
-                    T_5 = T_5_new
-                    converged = True
-                    residual_norm = min(residual_norm, abs(T_5 - T_5_old))
-                    break
 
             Q_target = cfg.Q_thermal
             Q_actual = ihx_result.Q_IHX
@@ -412,9 +411,14 @@ class CoupledPlantSolver:
                 dT_1 = abs(T_1 - T_1_old)
 
             residual_norm = max(dT_1, dT_5, dm_rel * 10.0)
-            if dT_5 < tol and dm_rel < 0.001 and (dT_1 < tol or mode == "fixed_boundary"):
-                converged = True
-                break
+            if mode == "fixed_boundary":
+                if dT_5 < tol and dm_rel < 0.001:
+                    converged = True
+                    break
+            else:
+                if cool_converged and dT_5 < tol and dm_rel < 0.001 and dT_1 < tol:
+                    converged = True
+                    break
 
         solve_time = time.time() - start_time
 
@@ -632,7 +636,15 @@ class CoupledPlantSolver:
             "energy_residual": energy_residual,
             "cooling_Q_model": cooler_diag["Q_model"],
             "cooling_Q_error_rel": cooler_diag["Q_error_rel"],
+            "cooling_closure_margin": margins.get("cooling_closure", 0.0),
+            "cycle_energy_closure_rel": cycle_result.energy_closure_rel,
         }
+        report_gate_passed = bool(
+            feasible
+            and cycle_result.converged
+            and cycle_result.energy_closure_rel <= cycle_cfg.energy_closure_tolerance
+            and energy_residual <= cfg.energy_closure_tolerance
+        )
 
         return PlantResult(
             converged=converged,
@@ -662,6 +674,7 @@ class CoupledPlantSolver:
             assumption_mode=("htgr_only" if mode == "fixed_boundary" else "coupled_cooler_sensitivity"),
             energy_closure_rel=energy_residual,
             diagnostic_breakdown=diagnostic_breakdown,
+            report_gate_passed=report_gate_passed,
         )
 
     def _failed_result(
@@ -718,4 +731,5 @@ class CoupledPlantSolver:
             assumption_mode="failed",
             energy_closure_rel=1.0,
             diagnostic_breakdown={"error": error_msg},
+            report_gate_passed=False,
         )

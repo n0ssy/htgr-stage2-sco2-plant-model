@@ -1,0 +1,125 @@
+{
+  "metadata_completeness": {
+    "passed": true,
+    "required_plant_meta": [
+      "baseline_or_sensitivity",
+      "heat_rejection_mode",
+      "scenario_id",
+      "source_assumptions_version"
+    ],
+    "required_co2_meta": [
+      "baseline_or_sensitivity",
+      "scenario_id",
+      "source_assumptions_version"
+    ],
+    "required_boundary_meta": [
+      "co2_accounting_mode",
+      "co2_boundary_mode",
+      "concept_mode",
+      "headline_role",
+      "headline_scenario_id",
+      "min_meoh_t_yr",
+      "optimization_mode",
+      "product_constraint_active"
+    ],
+    "required_scenario_metadata": [
+      "baseline_or_sensitivity",
+      "co2_accounting_mode",
+      "co2_boundary_mode",
+      "concept_mode",
+      "headline_role",
+      "headline_scenario_id",
+      "min_meoh_t_yr",
+      "product_constraint_active",
+      "product_constraint_passed",
+      "scenario_id",
+      "source_assumptions_version"
+    ]
+  },
+  "headline_plant_energy": {
+    "passed": true,
+    "converged": true,
+    "feasible": true,
+    "energy_closure_rel": 0.003774040694334358,
+    "threshold": 0.005
+  },
+  "headline_cycle_energy": {
+    "passed": true,
+    "cycle_energy_closure_rel": 0.0008174931668287088,
+    "threshold": 0.005
+  },
+  "headline_objective_consistency": {
+    "passed": true,
+    "objective_consistency_passed": true,
+    "objective_gap_rel": 0.0,
+    "threshold": 0.01,
+    "objective_best_alt": 1.0690889930459218,
+    "objective_value": 1.0690889930459218
+  },
+  "headline_policy_consistency": {
+    "passed": true,
+    "headline_scenario_id": "S2_30MW_FUELDISP",
+    "co2_accounting_mode": "fuel_displacement",
+    "headline_role": "headline",
+    "concept_mode": "fuel_factory",
+    "product_constraint_active": true,
+    "min_meoh_t_yr": 8833.0
+  },
+  "headline_product_constraint": {
+    "passed": true,
+    "product_constraint_active": true,
+    "min_meoh_t_yr": 8833.0,
+    "meoh_produced_t_yr": 9955.440828279143,
+    "h2_produced_t_yr": 1924.3764487652984
+  },
+  "process_analytic_validation": {
+    "passed": true,
+    "checks": [
+      {
+        "name": "dac_energy_intensity_closure",
+        "passed": true,
+        "value": 1.0,
+        "target": 1.0,
+        "error": 0.0
+      },
+      {
+        "name": "htse_energy_intensity_closure",
+        "passed": true,
+        "value": 1.0,
+        "target": 1.0,
+        "error": 0.0
+      },
+      {
+        "name": "methanol_stoichiometry_closure",
+        "passed": true,
+        "value": 1.0,
+        "target": 1.0,
+        "error": 0.0
+      }
+    ]
+  },
+  "accounting_mode_consistency": {
+    "passed": true,
+    "operational_only_t_yr": 90443.58554497984,
+    "fuel_displacement_t_yr": 30364.09452625138,
+    "absolute_delta_t_yr": 60079.491018728455
+  },
+  "secondary_cycle_anchor": {
+    "passed": true,
+    "converged": true,
+    "eta_thermal": 0.4034560758782976,
+    "acceptance_band": [
+      0.3,
+      0.55
+    ]
+  },
+  "uq_reproducibility": {
+    "passed": true,
+    "seed": 20260301,
+    "samples": 12
+  },
+  "overall": {
+    "passed": true,
+    "failures": []
+  }
+}

@@ -14,14 +14,14 @@ Primary entry point is now `AI_ONBOARDING.md`. This file remains the operational
 3. Claim work in `PARALLEL_SESSION_LEDGER.md` before editing.
 4. Update `TASKS_TBC.md` after each meaningful step.
 5. Use scenario tags in outputs:
-   - `S0_BASE_30MW_OPONLY` (headline)
-   - `S1_36MW_OPONLY` (sensitivity)
-   - `S2_30MW_FUELDISP` (sensitivity)
-   - `S3_36MW_FUELDISP` (optional sensitivity)
+   - `S2_30MW_FUELDISP` (headline)
+   - `S3_36MW_FUELDISP` (power sensitivity)
+   - `S0_BASE_30MW_OPONLY` (boundary sensitivity)
+   - `S1_36MW_OPONLY` (boundary sensitivity)
 
 ## Current Delivery Policy
 - HTGR-only scope.
-- Headline FoM boundary: `operational_only`.
+- Headline FoM boundary: `fuel_displacement`.
 - Baseline reactor case: `30 MWth`.
 - `36 MWth` is sensitivity only.
 

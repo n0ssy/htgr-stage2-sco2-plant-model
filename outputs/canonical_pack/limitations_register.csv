@@ -1,0 +1,4 @@
+id,limitation,impact,mitigation_next_step
+LIM-001,"Reactor-side physics represented as boundary condition, not transient core model","Safety-transient conclusions are literature-benchmarked, not simulated",Add 2D unit-cell surrogate + transient benchmark loop
+LIM-002,Headline fuel-displacement accounting depends on assumed fuel EF and displacement factor,Headline FoM uncertainty is sensitive to boundary assumptions,Calibrate fuel EF/displacement with RR-preferred accounting boundary and factors
+LIM-003,"Coupled-cooler mode retained as sensitivity, not headline",Headline excludes detailed heat-rejection design dependence,Keep fixed-boundary headline and report coupled mode in appendix

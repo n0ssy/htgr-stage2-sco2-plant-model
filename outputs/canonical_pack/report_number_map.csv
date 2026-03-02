@@ -1,0 +1,16 @@
+report_section,claim_text_short,value,units,scenario_id,co2_accounting_mode,headline_or_sensitivity,source_file,source_field,source_assumptions_version
+1,Primary FoM (tCO2/MWth/yr),3014.7861848326615,tCO2/MWth/year,S0_BASE_30MW_OPONLY,operational_only,sensitivity_boundary,outputs/canonical_pack/scenarios/S0_BASE_30MW_OPONLY.json,co2.figures_of_merit.CO2_reduction_t_per_MWth_per_yr,v3_fuel_factory_headline
+6,Net electric output,9.62839103616694,MWe,S0_BASE_30MW_OPONLY,operational_only,sensitivity_boundary,outputs/canonical_pack/scenarios/S0_BASE_30MW_OPONLY.json,plant.power_MW.W_net,v3_fuel_factory_headline
+6,Methanol production,0.0,t/year,S0_BASE_30MW_OPONLY,operational_only,sensitivity_boundary,outputs/canonical_pack/scenarios/S0_BASE_30MW_OPONLY.json,co2.production_rates.MeOH_produced_t_yr,v3_fuel_factory_headline
+1,Primary FoM (tCO2/MWth/yr),3025.632030987169,tCO2/MWth/year,S1_36MW_OPONLY,operational_only,sensitivity_boundary,outputs/canonical_pack/scenarios/S1_36MW_OPONLY.json,co2.figures_of_merit.CO2_reduction_t_per_MWth_per_yr,v3_fuel_factory_headline
+6,Net electric output,11.464170816185478,MWe,S1_36MW_OPONLY,operational_only,sensitivity_boundary,outputs/canonical_pack/scenarios/S1_36MW_OPONLY.json,plant.power_MW.W_net,v3_fuel_factory_headline
+6,Methanol production,0.0,t/year,S1_36MW_OPONLY,operational_only,sensitivity_boundary,outputs/canonical_pack/scenarios/S1_36MW_OPONLY.json,co2.production_rates.MeOH_produced_t_yr,v3_fuel_factory_headline
+1,Primary FoM (tCO2/MWth/yr),1012.1364842083793,tCO2/MWth/year,S2_30MW_FUELDISP,fuel_displacement,headline,outputs/canonical_pack/scenarios/S2_30MW_FUELDISP.json,co2.figures_of_merit.CO2_reduction_t_per_MWth_per_yr,v3_fuel_factory_headline
+6,Net electric output,9.62839103616694,MWe,S2_30MW_FUELDISP,fuel_displacement,headline,outputs/canonical_pack/scenarios/S2_30MW_FUELDISP.json,plant.power_MW.W_net,v3_fuel_factory_headline
+6,Methanol production,9955.440828279143,t/year,S2_30MW_FUELDISP,fuel_displacement,headline,outputs/canonical_pack/scenarios/S2_30MW_FUELDISP.json,co2.production_rates.MeOH_produced_t_yr,v3_fuel_factory_headline
+1,Primary FoM (tCO2/MWth/yr),1004.2613818405212,tCO2/MWth/year,S3_36MW_FUELDISP,fuel_displacement,sensitivity_power,outputs/canonical_pack/scenarios/S3_36MW_FUELDISP.json,co2.figures_of_merit.CO2_reduction_t_per_MWth_per_yr,v3_fuel_factory_headline
+6,Net electric output,11.464170816185478,MWe,S3_36MW_FUELDISP,fuel_displacement,sensitivity_power,outputs/canonical_pack/scenarios/S3_36MW_FUELDISP.json,plant.power_MW.W_net,v3_fuel_factory_headline
+6,Methanol production,11853.57696598648,t/year,S3_36MW_FUELDISP,fuel_displacement,sensitivity_power,outputs/canonical_pack/scenarios/S3_36MW_FUELDISP.json,co2.production_rates.MeOH_produced_t_yr,v3_fuel_factory_headline
+6,Headline UQ P50 FoM,1007.9019513075856,tCO2/MWth/year,S2_30MW_FUELDISP,fuel_displacement,headline,outputs/canonical_pack/uncertainty_summary.json,p50,v3_fuel_factory_headline
+8,Headline UQ 95% CI low,690.1633277954511,tCO2/MWth/year,S2_30MW_FUELDISP,fuel_displacement,headline,outputs/canonical_pack/uncertainty_summary.json,ci95_low,v3_fuel_factory_headline
+8,Headline UQ 95% CI high,1238.5471090014762,tCO2/MWth/year,S2_30MW_FUELDISP,fuel_displacement,headline,outputs/canonical_pack/uncertainty_summary.json,ci95_high,v3_fuel_factory_headline
